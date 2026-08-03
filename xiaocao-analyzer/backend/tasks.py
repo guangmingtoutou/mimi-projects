@@ -56,6 +56,7 @@ class TaskManager:
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "error": None,
             "total_score": None,
+            "warnings": [],
             "tag": "小灶课",
         }
         with self.lock:
@@ -87,6 +88,7 @@ class TaskManager:
         cfg = self.cfg
         mock = cfg["app"].get("mock", False)
         video_path = None
+        warnings: list[str] = []
         task_dir = os.path.join(cfg["app"]["data_dir"], "tasks", task_id)
         os.makedirs(task_dir, exist_ok=True)
         try:
@@ -99,27 +101,38 @@ class TaskManager:
                 video_path = downloader.download(task["source"], os.path.join(task_dir, "download"))
             self._update(task_id, phase="transcribing", message="语音识别…")
 
-            # ---- 2. 转写 ----
-            tr = transcribe.transcribe(video_path, task["run_mode"], cfg,
-                                       lambda m, p: self._progress(task_id, m, p))
+            # ---- 2. 转写（云端缺密钥自动降级本地） ----
+            try:
+                tr = transcribe.transcribe(video_path, task["run_mode"], cfg,
+                                           lambda m, p: self._progress(task_id, m, p))
+            except RuntimeError as e:
+                if task["run_mode"] == "cloud" and "api_key" in str(e):
+                    warnings.append("云端语音转写未配置密钥，已自动改用本地 faster-whisper（首次运行会自动下载模型）")
+                    tr = transcribe.transcribe(video_path, "local", cfg,
+                                               lambda m, p: self._progress(task_id, m, p))
+                else:
+                    raise
             self._update(task_id, progress=35, message="语音识别完成")
             if not tr["text"].strip():
                 raise RuntimeError("未识别到语音内容，请检查视频是否有清晰人声")
 
-            # ---- 3. 画面分析（按档位） ----
+            # ---- 3. 画面分析（按档位；未配置时降级） ----
             vision_notes = None
             if task["analysis_level"] != "speech" and not mock:
-                self._update(task_id, phase="vision", progress=40, message="抽取画面帧…")
-                dense = task["analysis_level"] == "multimodal"
-                interval = max(3, cfg["vision"]["interval_sec"] // (2 if dense else 1))
-                frames = vision.extract_frames(
-                    video_path, os.path.join(task_dir, "frames"), interval,
-                    cfg["vision"]["max_frames"] * (2 if dense else 1),
-                    lambda m, p: self._progress(task_id, m, p))
-                self._progress(task_id, "画面分析中…", 45)
-                vision_notes = vision.analyze_frames(
-                    frames, task["run_mode"], cfg, dense=dense,
-                    progress_cb=lambda m, p: self._progress(task_id, m, p))
+                try:
+                    self._update(task_id, phase="vision", progress=40, message="抽取画面帧…")
+                    dense = task["analysis_level"] == "multimodal"
+                    interval = max(3, cfg["vision"]["interval_sec"] // (2 if dense else 1))
+                    frames = vision.extract_frames(
+                        video_path, os.path.join(task_dir, "frames"), interval,
+                        cfg["vision"]["max_frames"] * (2 if dense else 1),
+                        lambda m, p: self._progress(task_id, m, p))
+                    self._progress(task_id, "画面分析中…", 45)
+                    vision_notes = vision.analyze_frames(
+                        frames, task["run_mode"], cfg, dense=dense,
+                        progress_cb=lambda m, p: self._progress(task_id, m, p))
+                except RuntimeError as e:
+                    warnings.append(f"画面分析不可用，已降级为仅语音分析：{e}")
             elif task["analysis_level"] != "speech":
                 vision_notes = "（演示模式，无真实画面数据）"
 
@@ -132,6 +145,7 @@ class TaskManager:
             result["engine"] = tr["engine"]
             if vision_notes:
                 result["vision_notes"] = vision_notes
+            result["warnings"] = warnings
 
             # ---- 5. 报告 ----
             self._progress(task_id, "生成报告…", 92)
@@ -139,7 +153,8 @@ class TaskManager:
             paths = report.save_report(task, result, report_dir)
             self._update(
                 task_id, status="done", phase="done", progress=100,
-                message="分析完成", total_score=result["total"],
+                message="分析完成" + (f"（{len(warnings)} 条降级提示）" if warnings else ""),
+                total_score=result["total"],
                 report_html=paths["html"], report_json=paths["json"],
             )
             logger.info("任务 %s 完成，总分 %.1f", task_id, result["total"])

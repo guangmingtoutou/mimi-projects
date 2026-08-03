@@ -92,6 +92,8 @@ _TEMPLATE = """<!DOCTYPE html>
 
   @@VISION_CARD@@
 
+  @@WARN_CARD@@
+
   <div class="card">
     <h2>课堂转录</h2>
     <details>
@@ -129,6 +131,13 @@ def build_html(task: dict, result: dict) -> str:
             '<div class="comment" style="white-space:pre-wrap">'
             + html.escape(result["vision_notes"][:4000]) + "</div></div>"
         )
+    warn_card = ""
+    if result.get("warnings"):
+        items = "".join(f"<li>{html.escape(str(x))}</li>" for x in result["warnings"])
+        warn_card = (
+            '<div class="card" style="border-left:4px solid #f59e0b"><h2>降级提示</h2>'
+            f'<ul>{items}</ul></div>'
+        )
 
     def lis(items):
         return "".join(f"<li>{html.escape(str(x))}</li>" for x in items) or "<li>—</li>"
@@ -149,6 +158,7 @@ def build_html(task: dict, result: dict) -> str:
         .replace("@@WEAKNESSES@@", lis(result.get("weaknesses", [])))
         .replace("@@SUGGESTIONS@@", lis(result.get("suggestions", [])))
         .replace("@@VISION_CARD@@", vision_card)
+        .replace("@@WARN_CARD@@", warn_card)
         .replace("@@TRANSCRIPT_LEN@@", str(len(result.get("transcript", ""))))
         .replace("@@TRANSCRIPT@@", html.escape(result.get("transcript", "")))
     )

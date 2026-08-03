@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import config as app_config
 from .config import load_config
 from .tasks import TaskManager
 
@@ -118,7 +119,50 @@ def get_report_json(task_id: str):
                         filename=f"report_{task_id}.json")
 
 
+@app.get("/api/settings")
+def get_settings():
+    """返回各云服务的配置状态（不返回密钥明文）。"""
+    s = {"mock": bool(cfg["app"].get("mock")), "data_dir": cfg["app"]["data_dir"]}
+    for section in ("whisper", "vision", "llm"):
+        cloud = cfg[section]["cloud"]
+        s[f"{section}_cloud"] = {
+            "configured": bool(cloud.get("api_key")),
+            "api_base": cloud.get("api_base", ""),
+            "model": cloud.get("model", ""),
+        }
+    return JSONResponse(s)
+
+
+@app.put("/api/settings")
+async def put_settings(payload: dict):
+    """保存云服务密钥与模型配置，写回 config.yaml（下次分析立即生效）。"""
+    mapping = {
+        "whisper_api_key": ("whisper", "cloud", "api_key"),
+        "whisper_base_url": ("whisper", "cloud", "api_base"),
+        "whisper_model": ("whisper", "cloud", "model"),
+        "vision_api_key": ("vision", "cloud", "api_key"),
+        "vision_base_url": ("vision", "cloud", "api_base"),
+        "vision_model": ("vision", "cloud", "model"),
+        "llm_api_key": ("llm", "cloud", "api_key"),
+        "llm_base_url": ("llm", "cloud", "api_base"),
+        "llm_model": ("llm", "cloud", "model"),
+    }
+    changed = []
+    for key, (section, mode, field) in mapping.items():
+        if key in payload and payload[key] is not None:
+            cfg[section][mode][field] = str(payload[key]).strip()
+            changed.append(key)
+    try:
+        app_config.save_config(cfg)
+    except Exception as e:
+        raise HTTPException(500, f"配置保存失败: {e}") from e
+    return JSONResponse({"ok": True, "updated": changed})
+
+
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     import uvicorn
 
     uvicorn.run(app, host=cfg["app"]["host"], port=cfg["app"]["port"])

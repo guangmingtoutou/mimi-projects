@@ -6,6 +6,9 @@ import subprocess
 
 import imageio_ffmpeg
 
+# 国内镜像加速 whisper 模型下载（faster-whisper / huggingface_hub 读取）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 logger = logging.getLogger("transcribe")
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
@@ -100,7 +103,10 @@ def _transcribe_cloud(audio_path: str, cfg: dict, progress_cb=None) -> dict:
 
 
 def transcribe(video_path: str, mode: str, cfg: dict, progress_cb=None) -> dict:
-    """mode: 'local' 或 'cloud'。返回 dict: text/segments/duration/engine。"""
+    """mode: 'local' 或 'cloud'。返回 dict: text/segments/duration/engine。
+
+    云端缺密钥时抛 RuntimeError（提示配置），调用方可降级到本地。
+    """
     data_dir = cfg["app"]["data_dir"]
     audio_dir = os.path.join(data_dir, "audio")
     audio_path = os.path.join(audio_dir, os.path.basename(video_path) + ".wav")

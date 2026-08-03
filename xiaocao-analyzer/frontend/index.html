@@ -26,6 +26,17 @@
   .url-row input { flex:1; padding:11px 14px; border:1px solid #e0d8c8; border-radius:10px; font-size:14px; outline:none; }
   .url-row input:focus { border-color:var(--orange); }
   .url-hint { font-size:12px; color:var(--sub); margin-top:6px; }
+  details.set { margin-top:4px; }
+  details.set summary { cursor:pointer; font-size:14px; color:var(--orange); font-weight:700; padding:8px 0; }
+  .set-body { padding-top:6px; }
+  .set-row { display:flex; gap:8px; margin-bottom:8px; align-items:center; }
+  .set-row label { width:96px; font-size:12px; color:var(--sub); flex-shrink:0; }
+  .set-row input { flex:1; padding:8px 10px; border:1px solid #e0d8c8; border-radius:8px; font-size:13px; outline:none; }
+  .set-row input:focus { border-color:var(--orange); }
+  .set-ok { font-size:12px; color:#047857; font-weight:600; }
+  .set-no { font-size:12px; color:#b45309; }
+  .set-save { padding:9px 26px; border:0; border-radius:9px; background:linear-gradient(135deg,#fbbf24,#f97316); color:#fff; font-weight:700; cursor:pointer; }
+  .set-hint { font-size:12px; color:var(--sub); line-height:1.8; margin-top:10px; }
   .opts { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
   .opt { border:2px solid #ece5d8; border-radius:12px; padding:12px; cursor:pointer; transition:.15s; background:#fff; }
   .opt:hover { border-color:var(--amber); }
@@ -95,7 +106,7 @@
   </div>
 
   <div class="card">
-    <h2>③ 选择运行方式</h2>
+    <h2>③ 运行方式</h2>
     <div class="opts2" id="modeOpts">
       <div class="opt" data-v="cloud"><div class="t">☁️ 云服务</div><div class="d">调用云端语音识别 + 大模型，速度快、精度高（需在 config.yaml 配置密钥）</div></div>
       <div class="opt" data-v="local"><div class="t">💻 本地运行</div><div class="d">faster-whisper + Ollama 本地跑，免费隐私好（需预先安装模型）</div></div>
@@ -104,6 +115,27 @@
 
   <button class="btn" id="submitBtn" disabled>🚀 开始分析</button>
   <div class="err" id="formErr"></div>
+
+  <div class="card">
+    <h2>⚙️ 云服务设置</h2>
+    <details class="set">
+      <summary id="setSummary">展开设置 / 查看配置状态</summary>
+      <div class="set-body">
+        <div class="set-row"><label>评分模型 Key</label><input id="setLlmKey" placeholder="DeepSeek / 通义 / OpenAI 密钥（必填，云模式核心）"><span id="setLlmSt" class="set-no">未配置</span></div>
+        <div class="set-row"><label>评分模型地址</label><input id="setLlmBase" placeholder="https://api.deepseek.com/v1"></div>
+        <div class="set-row"><label>评分模型名</label><input id="setLlmModel" placeholder="deepseek-chat"></div>
+        <div class="set-row"><label>画面模型 Key</label><input id="setVisKey" placeholder="阿里云百炼等视觉模型密钥（画面分析用，可不填）"><span id="setVisSt" class="set-no">未配置</span></div>
+        <div class="set-row"><label>画面模型地址</label><input id="setVisBase" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"></div>
+        <div class="set-row"><label>画面模型名</label><input id="setVisModel" placeholder="qwen-vl-max"></div>
+        <div class="set-row"><label>转写模型 Key</label><input id="setWhisperKey" placeholder="云端语音转写密钥（不填则自动用本地 faster-whisper）"><span id="setWhisperSt" class="set-no">未配置</span></div>
+        <div class="set-row"><label>转写模型地址</label><input id="setWhisperBase" placeholder="https://api.openai.com/v1"></div>
+        <div class="set-row"><label>转写模型名</label><input id="setWhisperModel" placeholder="whisper-1"></div>
+        <button class="set-save" id="setSave">💾 保存设置</button>
+        <div class="set-hint">💡 云端模式至少需要「评分模型 Key」。不配转写 Key 时自动用本地 faster-whisper（首次自动下载模型，国内镜像加速）；
+        本地模式（不填任何 Key）需要电脑上安装 <b>Ollama</b> 并拉取模型：<code>ollama pull qwen2.5:14b</code>。</div>
+      </div>
+    </details>
+  </div>
 
   <div class="card">
     <h2>④ 分析任务</h2>
@@ -238,6 +270,50 @@ async function refresh() {
 }
 setInterval(refresh, 2500);
 refresh();
+
+// ---------- 云服务设置 ----------
+async function loadSettings() {
+  try {
+    const r = await fetch("/api/settings");
+    const s = await r.json();
+    const put = (id, v) => { if (v) document.getElementById(id).value = v; };
+    put("setLlmBase", s.llm_cloud.api_base); put("setLlmModel", s.llm_cloud.model);
+    put("setVisBase", s.vision_cloud.api_base); put("setVisModel", s.vision_cloud.model);
+    put("setWhisperBase", s.whisper_cloud.api_base); put("setWhisperModel", s.whisper_cloud.model);
+    const st = (id, ok) => {
+      const el = document.getElementById(id);
+      el.textContent = ok ? "✅ 已配置" : "未配置";
+      el.className = ok ? "set-ok" : "set-no";
+    };
+    st("setLlmSt", s.llm_cloud.configured); st("setVisSt", s.vision_cloud.configured); st("setWhisperSt", s.whisper_cloud.configured);
+  } catch(e) {}
+}
+$("#setSave").onclick = async () => {
+  const body = {
+    llm_api_key: $("#setLlmKey").value.trim(),
+    llm_base_url: $("#setLlmBase").value.trim(),
+    llm_model: $("#setLlmModel").value.trim(),
+    vision_api_key: $("#setVisKey").value.trim(),
+    vision_base_url: $("#setVisBase").value.trim(),
+    vision_model: $("#setVisModel").value.trim(),
+    whisper_api_key: $("#setWhisperKey").value.trim(),
+    whisper_base_url: $("#setWhisperBase").value.trim(),
+    whisper_model: $("#setWhisperModel").value.trim(),
+  };
+  const btn = $("#setSave");
+  btn.disabled = true; btn.textContent = "保存中…";
+  try {
+    const r = await fetch("/api/settings", { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "保存失败");
+    btn.textContent = "✅ 已保存";
+    loadSettings();
+  } catch(e) {
+    btn.textContent = "❌ " + e.message;
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = "💾 保存设置"; }, 1800);
+};
+loadSettings();
 </script>
 </body>
 </html>
