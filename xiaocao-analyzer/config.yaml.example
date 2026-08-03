@@ -1,0 +1,44 @@
+# ============================================================
+# 小灶课质量分析系统 - 配置文件
+# 复制本文件为 config.yaml 后填写你的密钥
+# 所有 api_base 均为 OpenAI 兼容接口地址
+# ============================================================
+
+app:
+  host: 0.0.0.0          # 监听地址
+  port: 8787             # 端口
+  data_dir: data         # 数据目录（上传/音频/帧/报告）
+  max_upload_mb: 2048    # 单个视频最大上传大小 (MB)
+  mock: false            # true = 演示模式（不调用真实模型，用于测试界面）
+
+# ---------- 语音转写 ----------
+whisper:
+  local:                 # 本地模式：faster-whisper
+    model_size: medium   # tiny / base / small / medium / large-v3（越大越准越慢）
+    device: cpu          # cpu 或 cuda
+  cloud:                 # 云模式：OpenAI 兼容 /audio/transcriptions 接口
+    api_base: https://api.openai.com/v1
+    api_key: ""          # 例：OpenAI / Groq / 阿里云百炼 的 key
+    model: whisper-1
+
+# ---------- 画面分析（语音+画面 / 多模态 档位需要） ----------
+vision:
+  interval_sec: 15       # 抽帧间隔（秒），多模态档会加倍采样
+  max_frames: 40         # 每节课最多抽帧数
+  local:                 # 本地：Ollama 视觉模型
+    api_base: http://localhost:11434/v1
+    model: qwen2.5vl
+  cloud:                 # 云：视觉大模型
+    api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key: ""
+    model: qwen-vl-max
+
+# ---------- 评分大模型 ----------
+llm:
+  local:                 # 本地：Ollama
+    api_base: http://localhost:11434/v1
+    model: qwen2.5:14b
+  cloud:                 # 云：推荐带物理知识的大模型
+    api_base: https://api.deepseek.com/v1
+    api_key: ""
+    model: deepseek-chat

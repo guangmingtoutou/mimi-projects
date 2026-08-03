@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小灶课质量分析系统 🍯</title>
+<style>
+  :root { --orange:#f97316; --amber:#fbbf24; --bg:#f7f5f0; --card:#fff; --ink:#2d2a26; --sub:#8a8578; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width: 980px; margin:0 auto; padding: 24px 16px 80px; }
+  header { text-align:center; padding: 26px 0 8px; }
+  header h1 { font-size:28px; letter-spacing:1px; }
+  header h1 .bee { font-size:30px; }
+  header p { color:var(--sub); font-size:14px; margin-top:6px; }
+  .card { background:var(--card); border-radius:16px; padding:22px; box-shadow:0 2px 10px rgba(0,0,0,.06); margin-top:18px; }
+  .card h2 { font-size:16px; margin-bottom:14px; color:#b45309; border-left:4px solid var(--orange); padding-left:10px; }
+  .drop { border:2px dashed #e0d8c8; border-radius:14px; padding:26px; text-align:center; cursor:pointer;
+          transition:.2s; background:#fdfbf7; }
+  .drop:hover, .drop.drag { border-color:var(--orange); background:#fff7ed; }
+  .drop .big { font-size:40px; }
+  .drop .tip { color:var(--sub); font-size:13px; margin-top:8px; }
+  .drop .file-name { margin-top:8px; font-weight:600; color:var(--orange); }
+  .or { text-align:center; color:#c9c2b4; font-size:13px; margin:14px 0; }
+  .url-row { display:flex; gap:10px; }
+  .url-row input { flex:1; padding:11px 14px; border:1px solid #e0d8c8; border-radius:10px; font-size:14px; outline:none; }
+  .url-row input:focus { border-color:var(--orange); }
+  .url-hint { font-size:12px; color:var(--sub); margin-top:6px; }
+  .opts { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .opt { border:2px solid #ece5d8; border-radius:12px; padding:12px; cursor:pointer; transition:.15s; background:#fff; }
+  .opt:hover { border-color:var(--amber); }
+  .opt.sel { border-color:var(--orange); background:#fff7ed; box-shadow:0 0 0 1px var(--orange); }
+  .opt .t { font-weight:700; font-size:14px; }
+  .opt .d { font-size:12px; color:var(--sub); margin-top:4px; line-height:1.5; }
+  .opts2 { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .btn { width:100%; margin-top:18px; padding:14px; border:0; border-radius:12px; font-size:16px; font-weight:700;
+         color:#fff; background:linear-gradient(135deg,#fbbf24,#f97316); cursor:pointer; transition:.2s;
+         box-shadow:0 4px 14px rgba(249,115,22,.3); }
+  .btn:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(249,115,22,.4); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+  .task { border:1px solid #eee5d5; border-radius:14px; padding:16px 18px; margin-top:12px; background:#fff; }
+  .task .top { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .task .name { font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .task .tags { font-size:12px; color:var(--sub); margin-top:4px; }
+  .st { font-size:12px; padding:3px 10px; border-radius:20px; white-space:nowrap; }
+  .st.queued { background:#f0ece4; color:#7a7468; }
+  .st.running { background:#fef3c7; color:#b45309; }
+  .st.done { background:#d1fae5; color:#047857; }
+  .st.failed { background:#fee2e2; color:#b91c1c; }
+  .bar { height:8px; background:#f0ece4; border-radius:6px; margin-top:10px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg,#fbbf24,#f97316); transition:width .5s; }
+  .msg { font-size:12px; color:var(--sub); margin-top:6px; }
+  .err { font-size:12px; color:#b91c1c; margin-top:6px; white-space:pre-wrap; }
+  .score-row { display:flex; align-items:center; justify-content:space-between; margin-top:10px; gap:10px; flex-wrap:wrap; }
+  .score { font-size:22px; font-weight:800; color:var(--orange); }
+  .dl { display:inline-block; padding:8px 16px; background:var(--orange); color:#fff; border-radius:10px;
+        text-decoration:none; font-size:13px; font-weight:600; }
+  .dl:hover { background:#ea6a0c; }
+  .empty { text-align:center; color:#c9c2b4; font-size:13px; padding:22px 0; }
+  footer { text-align:center; color:#c9c2b4; font-size:12px; margin-top:30px; }
+  @media (max-width:640px){ .opts { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="bee">🍯</span> 小灶课质量分析系统</h1>
+    <p>上传高中物理小灶课视频，AI 从 5 个维度给老师打分并生成报告</p>
+  </header>
+
+  <div class="card">
+    <h2>① 提交课程视频</h2>
+    <div class="drop" id="drop">
+      <div class="big">📼</div>
+      <div>点击选择 或 拖拽视频到此处</div>
+      <div class="tip">支持 MP4 / MOV / MKV / AVI / WebM 等，单文件 ≤ 2GB</div>
+      <div class="file-name" id="fileName"></div>
+    </div>
+    <input type="file" id="fileInput" accept="video/*" hidden>
+
+    <div class="or">—— 或者 ——</div>
+    <div class="url-row">
+      <input id="urlInput" placeholder="粘贴视频直链 / m3u8 链接（腾讯会议回放链接需先在客户端下载后再上传）">
+    </div>
+    <div class="url-hint">💡 腾讯会议：请在客户端「录制」里下载 MP4 后直接上传</div>
+  </div>
+
+  <div class="card">
+    <h2>② 选择分析深度</h2>
+    <div class="opts" id="levelOpts">
+      <div class="opt" data-v="speech"><div class="t">🎙️ 仅语音分析</div><div class="d">转写课堂语音，分析讲得对不对、全不全、清不清楚</div></div>
+      <div class="opt" data-v="speech_vision"><div class="t">🖼️ 语音 + 画面</div><div class="d">在语音基础上，识别板书/PPT 内容与老师教学状态</div></div>
+      <div class="opt" data-v="multimodal"><div class="t">🧠 多模态分析</div><div class="d">高密度采样画面 + 语音，深度分析课堂节奏与师生互动</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>③ 选择运行方式</h2>
+    <div class="opts2" id="modeOpts">
+      <div class="opt" data-v="cloud"><div class="t">☁️ 云服务</div><div class="d">调用云端语音识别 + 大模型，速度快、精度高（需在 config.yaml 配置密钥）</div></div>
+      <div class="opt" data-v="local"><div class="t">💻 本地运行</div><div class="d">faster-whisper + Ollama 本地跑，免费隐私好（需预先安装模型）</div></div>
+    </div>
+  </div>
+
+  <button class="btn" id="submitBtn" disabled>🚀 开始分析</button>
+  <div class="err" id="formErr"></div>
+
+  <div class="card">
+    <h2>④ 分析任务</h2>
+    <div id="taskList"><div class="empty">还没有任务，提交一个试试～</div></div>
+  </div>
+
+  <footer>小灶课质量分析系统 · 由咪咪制作 🍯 · 评分维度：知识点正确性 / 完整性 / 例题引导 / 清晰度 / 互动性</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let selectedLevel = "speech", selectedMode = "cloud";
+let chosenFile = null, chosenName = "";
+
+// 分析深度 / 运行方式选择
+document.querySelectorAll("#levelOpts .opt").forEach(el => {
+  el.onclick = () => {
+    document.querySelectorAll("#levelOpts .opt").forEach(x => x.classList.remove("sel"));
+    el.classList.add("sel"); selectedLevel = el.dataset.v;
+  };
+});
+document.querySelectorAll("#modeOpts .opt").forEach(el => {
+  el.onclick = () => {
+    document.querySelectorAll("#modeOpts .opt").forEach(x => x.classList.remove("sel"));
+    el.classList.add("sel"); selectedMode = el.dataset.v;
+  };
+});
+document.querySelector("#levelOpts .opt").classList.add("sel");
+document.querySelector("#modeOpts .opt").classList.add("sel");
+
+// 上传
+const drop = $("#drop"), fi = $("#fileInput");
+drop.onclick = () => fi.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("drag"); };
+drop.ondragleave = () => drop.classList.remove("drag");
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove("drag");
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+};
+fi.onchange = () => { if (fi.files.length) setFile(fi.files[0]); };
+function setFile(f) {
+  chosenFile = f; chosenName = f.name;
+  $("#fileName").textContent = "✅ " + f.name + "（" + (f.size/1024/1024).toFixed(1) + " MB）";
+  checkSubmit();
+}
+$("#urlInput").oninput = checkSubmit;
+
+function checkSubmit() {
+  const hasUrl = $("#urlInput").value.trim().length > 0;
+  $("#submitBtn").disabled = !(chosenFile || hasUrl);
+}
+
+// 提交
+$("#submitBtn").onclick = async () => {
+  const url = $("#urlInput").value.trim();
+  const fd = new FormData();
+  fd.append("analysis_level", selectedLevel);
+  fd.append("run_mode", selectedMode);
+  if (chosenFile) fd.append("file", chosenFile);
+  else fd.append("url", url);
+  if (chosenName) fd.append("name", chosenName);
+  $("#submitBtn").disabled = true;
+  $("#formErr").textContent = "";
+  try {
+    const r = await fetch("/api/tasks", { method:"POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "提交失败");
+    chosenFile = null; chosenName = ""; fi.value = "";
+    $("#fileName").textContent = ""; $("#urlInput").value = "";
+    checkSubmit();
+    renderTask(data, true);
+  } catch (e) {
+    $("#formErr").textContent = "❌ " + e.message;
+    checkSubmit();
+  }
+};
+
+// 任务列表渲染
+const LEVEL_NAME = { speech:"仅语音", speech_vision:"语音+画面", multimodal:"多模态" };
+const MODE_NAME = { cloud:"云服务", local:"本地" };
+const ST_NAME = { queued:"排队中", running:"处理中", done:"已完成", failed:"失败" };
+const ST_CLS = { queued:"queued", running:"running", done:"done", failed:"failed" };
+
+function renderTask(t, prepend) {
+  let list = $("#taskList");
+  if (prepend) {
+    list.innerHTML = "";
+  } else if (list.querySelector(".empty")) {
+    list.innerHTML = "";
+  }
+  const el = document.createElement("div");
+  el.className = "task"; el.id = "task-" + t.id;
+  list.prepend(el);
+  updateTaskEl(el, t);
+}
+
+function updateTaskEl(el, t) {
+  const tags = `${LEVEL_NAME[t.analysis_level]||t.analysis_level} · ${MODE_NAME[t.run_mode]||t.run_mode}`;
+  let extra = "";
+  if (t.status === "done" && t.total_score != null) {
+    extra = `<div class="score-row"><div class="score">总分 ${t.total_score.toFixed(1)} / 10</div>
+      <a class="dl" href="/api/tasks/${t.id}/report">📄 下载报告</a></div>`;
+  }
+  if (t.status === "failed" && t.error) {
+    extra = `<div class="err">❌ ${t.error.replace(/</g,"&lt;")}</div>`;
+  }
+  el.innerHTML = `
+    <div class="top"><div>
+      <div class="name">📼 ${t.display_name.replace(/</g,"&lt;")}</div>
+      <div class="tags">${tags} · ${t.created_at}</div>
+    </div>
+    <span class="st ${ST_CLS[t.status]||""}">${ST_NAME[t.status]||t.status}</span></div>
+    <div class="bar"><i style="width:${t.progress||0}%"></i></div>
+    <div class="msg">${t.message||""}</div>${extra}`;
+}
+
+// 轮询
+async function refresh() {
+  try {
+    const r = await fetch("/api/tasks");
+    const tasks = await r.json();
+    if (!tasks.length) return;
+    if (!$("#taskList .task")) {
+      tasks.slice().reverse().forEach(t => renderTask(t, true));
+    } else {
+      tasks.forEach(t => {
+        const el = document.getElementById("task-" + t.id);
+        if (el) updateTaskEl(el, t);
+      });
+    }
+  } catch(e) { /* 忽略瞬时错误 */ }
+}
+setInterval(refresh, 2500);
+refresh();
+</script>
+</body>
+</html>
