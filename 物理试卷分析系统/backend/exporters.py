@@ -53,7 +53,40 @@ def html_to_pdf(html_path: Path, pdf_path: Path) -> Path:
 
 
 def html_to_long_image(html_path: Path, png_path: Path, width: int = 1000) -> Path:
-    """HTML → 单张长图（整页截图）"""
+    """HTML → 单张纵向长图（整页内容，超出视口部分自动裁剪空白）。
+    方案：用较大视口高度截图，再用 PIL 裁剪底部纯色空白，保证一张图包含全部内容。
+    """
     url = html_path.resolve().as_uri()
-    _run_browser([f"--window-size={width},1200", f"--screenshot={png_path}", url])
+    tall = png_path.with_suffix(".tall.png")
+    _run_browser([f"--window-size={width},6000", f"--screenshot={tall}", url])
+    _crop_blank(tall, png_path)
     return png_path
+
+
+def _crop_blank(src: Path, dst: Path, bg_tolerance: int = 8) -> None:
+    """裁剪底部与背景色一致的空白区域（报告背景为 #fffdf9 近白）"""
+    try:
+        from PIL import Image
+    except Exception:
+        # 无 PIL 时直接使用原图
+        import shutil
+        shutil.copy(src, dst)
+        return
+    img = Image.open(src).convert("RGB")
+    w, h = img.size
+    # 取左上角像素作为背景色参考
+    bg = img.getpixel((min(20, w - 1), min(20, h - 1)))
+
+    def _close(c):
+        return all(abs(c[i] - bg[i]) <= bg_tolerance for i in range(3))
+
+    bottom = h
+    # 从底部向上找第一个非背景行；空白判定：该行 98% 以上像素接近背景色
+    from PIL import ImageChops
+    for y in range(h - 1, -1, -1):
+        row = [img.getpixel((x, y)) for x in range(0, w, 4)]
+        non_bg = sum(1 for c in row if not _close(c))
+        if non_bg > max(2, len(row) * 0.02):
+            bottom = y + 8  # 留 8px 边距
+            break
+    img.crop((0, 0, w, min(bottom, h))).save(dst, "PNG")

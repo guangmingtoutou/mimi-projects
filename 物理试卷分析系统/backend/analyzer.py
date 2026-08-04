@@ -124,7 +124,7 @@ def analyze(questions: list[Question]) -> dict:
             "correct": q.got_score >= q.full_score,
         })
 
-    # 板块汇总
+    # 板块汇总（按大纲顺序，不按丢分重排）
     sections = []
     for sec in SECTIONS:
         qs = [q for q in questions if q.section_key == sec["key"]]
@@ -147,7 +147,6 @@ def analyze(questions: list[Question]) -> dict:
             "questions": [q for q in per_question if q["section_key"] == sec["key"]],
             "loss_questions": [q for q in per_question if q["section_key"] == sec["key"] and q["lost_score"] > 0],
         })
-    sections.sort(key=lambda s: -s["lost_score"])
 
     # 题型汇总
     qtypes = []
@@ -204,6 +203,10 @@ def analyze(questions: list[Question]) -> dict:
         "overall_difficulty": overall_difficulty,
         "choice_rate": choice_rate,
         "nonchoice_rate": non_rate,
+        "choice_got": round(choice_got, 1),
+        "choice_full": round(choice_full, 1),
+        "nonchoice_got": round(non_got, 1),
+        "nonchoice_full": round(non_full, 1),
         "per_question": per_question,
         "sections": sections,
         "qtypes": qtypes,

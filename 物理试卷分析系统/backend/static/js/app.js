@@ -225,29 +225,51 @@ $("#ind-pdf").addEventListener("click", () => window.open(lastResult.pdf_url));
 $("#ind-img").addEventListener("click", () => window.open(lastResult.image_url));
 $("#ind-open").addEventListener("click", () => window.open(lastResult.html_url));
 
-/* 智能标注知识点：根据试卷原文关键词匹配板块与知识点 */
+/* 智能标注知识点：优先大模型 API（后端自动判断），本地规则兜底。
+   分批调用展示进度（已分析 X/N 题），5 分钟无结果提示超时。 */
 async function suggestKnowledge(mode) {
   const arr = mode === "ind" ? indQuestions : batQuestions;
   const paperQs = mode === "ind" ? indPaperQuestions : batPaperQuestions;
   if (!paperQs.length) return toast("请先上传试卷并点击「从试卷提取题目」", true);
   const textByQid = {};
   for (const pq of paperQs) textByQid[String(pq.qid)] = pq.text || "";
-  const payload = { questions: arr.map((q) => ({ qid: q.qid, text: textByQid[String(q.qid)] || "" })) };
+  const targets = arr.filter((q) => !q.knowledge_point);   // 只标注未选的
+  const items = targets.map((q) => ({ qid: q.qid, text: textByQid[String(q.qid)] || "" }));
+  if (!items.length) return toast("所有题目都已标注知识点", false);
+
+  const BATCH = 5, TIMEOUT_MS = 300000;  // 每批 5 题，总超时 5 分钟
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let done = 0, total = items.length, applied = 0;
+  toast(`正在智能标注（大模型优先）… 0/${total}`);
   try {
-    const r = await api("/api/suggest/knowledge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    let n = 0;
-    for (const sug of r.suggestions) {
-      const q = arr.find((x) => String(x.qid) === String(sug.qid));
-      if (q) {
-        q.section_key = sug.section_key;
-        q.knowledge_point = sug.knowledge_point;
-        n++;
+    for (let i = 0; i < items.length; i += BATCH) {
+      const batch = items.slice(i, i + BATCH);
+      const r = await api("/api/suggest/knowledge", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questions: batch }),
+        signal: controller.signal,
+      });
+      for (const sug of r.suggestions) {
+        const q = arr.find((x) => String(x.qid) === String(sug.qid));
+        if (q && !q.knowledge_point) {
+          q.section_key = sug.section_key;
+          q.knowledge_point = sug.knowledge_point;
+          applied++;
+        }
       }
+      done += batch.length;
+      toast(`正在智能标注（${r.engine === "llm" ? "大模型" : "本地规则"}）… ${Math.min(done, total)}/${total}`);
     }
     if (mode === "ind") renderIndQuestions(); else renderBatQuestions();
     const empty = arr.filter((q) => !q.knowledge_point).length;
-    toast(`已标注 ${n} 道题，剩余 ${empty} 道需手动选择知识点`);
-  } catch (err) { toast("标注失败: " + err.message, true); }
+    toast(`标注完成：新增 ${applied} 道，剩余 ${empty} 道需手动选择`);
+  } catch (err) {
+    toast("智能标注超时（5 分钟），请手动添加知识点", true);
+    if (mode === "ind") renderIndQuestions(); else renderBatQuestions();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 $("#ind-suggest").addEventListener("click", () => suggestKnowledge("ind"));
 $("#bat-suggest").addEventListener("click", () => suggestKnowledge("bat"));
@@ -438,10 +460,13 @@ async function doCleanup() {
   try {
     await api("/api/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reports: true, tmp: true, uploads: true }) });
+    // 重置界面状态
     $("#bat-result").classList.add("hidden");
     $("#bat-progress").classList.add("hidden");
     $("#export-modal").classList.add("hidden");
+    $("#bat-list tbody").innerHTML = "";
     lastResult = {};
+    lastJobId = null;
     toast("缓存已清除");
   } catch (err) { toast(err.message, true); }
 }

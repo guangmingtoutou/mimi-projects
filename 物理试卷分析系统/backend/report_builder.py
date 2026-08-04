@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
 from .config import TMP_DIR
-from .knowledge import SECTION_INDEX
+from .knowledge import SECTION_INDEX, knowledge_desc
 
 # 中文字体
 for _f in (r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf", r"C:\Windows\Fonts\simsun.ttc"):
@@ -168,11 +168,12 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     meta_line = (f"<div class='meta'><span>老师：{meta.get('teacher', '')}</span>"
                  f"<span>学生：{meta.get('student', '')}</span></div>")
 
-    # 顶部卡片：选择题得分率 / 非选择题得分率 / 试卷整体难度
+    # 顶部卡片：总得分 + 选择题得分率 + 非选择题得分率 + 试卷整体难度
     cards = f"""
     <div class="cards">
-      <div class="card green"><div class="v">{analysis['choice_rate']:.0%}</div><div class="k">选择题得分率</div></div>
-      <div class="card orange"><div class="v">{analysis['nonchoice_rate']:.0%}</div><div class="k">非选择题得分率</div></div>
+      <div class="card"><div class="v">{analysis['total_got']:.0f} / {analysis['total_full']:.0f}</div><div class="k">总得分（满分 {analysis['total_full']:.0f}）</div></div>
+      <div class="card green"><div class="v">{analysis['choice_got']:.0f} / {analysis['choice_full']:.0f}</div><div class="k">选择题得分率 {analysis['choice_rate']:.0%}</div></div>
+      <div class="card blue"><div class="v">{analysis['nonchoice_got']:.0f} / {analysis['nonchoice_full']:.0f}</div><div class="k">非选择题得分率 {analysis['nonchoice_rate']:.0%}</div></div>
       <div class="card gray"><div class="v">{analysis['overall_difficulty']}</div><div class="k">试卷整体难度</div></div>
     </div>"""
 
@@ -187,21 +188,24 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     part1 = f"""
     <h2>一、试卷整体分析</h2>
     <div class="note">{advice.get('paper_comment', '')}</div>
-    <div class="chart">{chart_section_donut(analysis)}</div>
+    <div class="chart"><img src="{chart_section_donut(analysis)}" alt="各板块得分分布"></div>
     <table>
       <tr><th>板块</th><th>高考占比</th><th>重要性</th><th>得分</th><th>得分率</th><th>丢分</th><th>难度</th></tr>
       {sec_rows}
     </table>
     <div class="note">{advice.get('section_importance', '')}</div>"""
 
-    # 二、待巩固题目分析：每个错题一行（题目序号、板块、待提升、考察知识点）
+    # 二、待巩固题目分析：每个错题一行（题目序号、板块、待提升、考察知识点+20字说明）
     wrong_rows = ""
     for q in analysis["per_question"]:
         if q["lost_score"] <= 0:
             continue
+        kp = q["knowledge_point"] or "待补充"
+        desc = knowledge_desc(kp)
+        kp_html = f"{kp}" + (f"<div class='kp-desc'>{desc}</div>" if desc else "")
         wrong_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td>"
                        f"<td class='wrong'>{q['lost_score']:.0f}</td>"
-                       f"<td>{q['knowledge_point'] or '待补充'}</td></tr>")
+                       f"<td style='text-align:left'>{kp_html}</td></tr>")
     part2 = f"""
     <h2>二、待巩固题目分析</h2>
     <table>

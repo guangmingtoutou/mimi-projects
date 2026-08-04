@@ -160,6 +160,8 @@ def cleanup(payload: dict = None):
     conn.execute("DELETE FROM reports")
     conn.commit()
     conn.close()
+    # 清空内存中的批量任务
+    BATCH_JOBS.clear()
     return {"ok": True, "cleared": cleared}
 
 
@@ -223,9 +225,19 @@ async def paper_text(file: UploadFile = File(...)):
 
 @app.post("/api/suggest/knowledge")
 def suggest_knowledge(payload: dict):
-    """根据题目文本关键词自动匹配板块与知识点（规则引擎）"""
+    """根据题目文本匹配板块与知识点。优先使用大模型 API（配置了 Key 时），否则本地规则。"""
     from .knowledge import SECTIONS
+    from .llm import suggest_knowledge_llm
     questions = payload.get("questions") or []
+    # 1) 大模型优先
+    if llm_available():
+        try:
+            sugg = suggest_knowledge_llm(questions)
+            if sugg:
+                return {"suggestions": sugg, "engine": "llm"}
+        except Exception as e:
+            print(f"[warn] LLM 标注失败，回退本地规则: {e}")
+    # 2) 本地规则
     suggestions = []
     for item in questions:
         text = (item.get("text") or "") + (item.get("knowledge_point") or "")
@@ -244,7 +256,7 @@ def suggest_knowledge(payload: dict):
                     best_sec, best_kp, best_score = sec["key"], kp["name"], score
         if best_sec and best_score > 0:
             suggestions.append({"qid": item.get("qid"), "section_key": best_sec, "knowledge_point": best_kp})
-    return {"suggestions": suggestions}
+    return {"suggestions": suggestions, "engine": "rule"}
 
 
 # ---------------- 个人试卷分析 ----------------

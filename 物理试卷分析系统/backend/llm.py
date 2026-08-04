@@ -76,7 +76,7 @@ def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, vid
     call = student_call(student)
     user_msg = f"""请基于以下学情数据输出 JSON（严格按此结构）：
 {{
-  "paper_comment": "试卷整体分析（约350字，语气委婉鼓励：高分侧重表扬与保持，低分侧重下一步计划与进步空间；分析整体难度、板块强弱、选择题/非选择题表现、主要提升点与复习方向）",
+  "paper_comment": "试卷整体分析（约350字，客观陈述不带人名和'你'等称呼；语气委婉鼓励；高分侧重表扬与保持，低分侧重下一步计划与进步空间；分析整体难度、板块强弱、选择题/非选择题表现、主要提升点与复习方向）",
   "section_importance": "各板块在高考中的占比与重要性说明（150字内）",
   "knowledge_supplement": [{{"qid": "题号", "knowledge_point": "规范知识点名称"}}],
   "study_advice": "后续学习建议（约150字，围绕完成直播课、观看知识视频展开，分点给出可执行步骤）",
@@ -101,6 +101,49 @@ def student_call(name: str) -> str:
     return f"{n[-2:]}同学"
 
 
+def suggest_knowledge_llm(questions: list, timeout: int = 300) -> list:
+    """调用大模型为题目匹配大纲知识点（优先使用；失败抛异常由调用方回退本地规则）。
+    questions: [{qid, text}]；返回 [{qid, section_key, knowledge_point}]。
+    """
+    from .knowledge import load_outline
+    outline = load_outline()
+    kp_lines = []
+    for sec in outline.get("sections", []):
+        for kp in sec.get("knowledge_points", []):
+            kp_lines.append(f"{kp['name']}（{sec['name']}）")
+    kp_text = "、".join(kp_lines)
+    q_lines = "\n".join(f"{i + 1}. 题号[{q.get('qid', '?')}]：{(q.get('text') or '')[:300]}" for i, q in enumerate(questions))
+    system = "你是资深高考物理教师。请根据每道题的题目内容，从给定的大纲知识点中选出最匹配的一个（只能从列表中选择，不能自创）。不确定的题目可以跳过。只输出 JSON。"
+    user = f"""大纲知识点（板块）：{kp_text}
+
+题目列表：
+{q_lines}
+
+请输出 JSON：{{"suggestions": [{{"qid": "题号", "knowledge_point": "知识点名"}}]}}"""
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    data = chat_json(messages, temperature=0.1, timeout=timeout)
+    # 规范化：知识点名 → 板块 key
+    name_to_sec = {}
+    for sec in outline.get("sections", []):
+        for kp in sec.get("knowledge_points", []):
+            name_to_sec[kp["name"]] = sec["key"]
+    result = []
+    for s in data.get("suggestions") or []:
+        kp = (s.get("knowledge_point") or "").strip()
+        if not kp:
+            continue
+        # 尽量匹配到大纲内的标准名称（容错：包含匹配）
+        exact = name_to_sec.get(kp)
+        if exact:
+            result.append({"qid": str(s.get("qid", "")), "section_key": exact, "knowledge_point": kp})
+        else:
+            for name, sec_key in name_to_sec.items():
+                if kp in name or name in kp:
+                    result.append({"qid": str(s.get("qid", "")), "section_key": sec_key, "knowledge_point": name})
+                    break
+    return result
+
+
 def template_advice(analysis: dict, student: str = "") -> dict:
     """纯规则模式的模板化建议文案（不依赖网络）。委婉分层：高分表扬分数，低分强调下一步计划。"""
     sec = analysis["sections"]
@@ -111,14 +154,14 @@ def template_advice(analysis: dict, student: str = "") -> dict:
     non_rate = analysis.get("nonchoice_rate", 0)
     call = student_call(student)
 
-    # ---- 整体分析（~350字，委婉） ----
+    # ---- 整体分析（~350字，客观不带称呼） ----
     pts = []
     if rate >= 0.85:
-        pts.append(f"本次试卷满分{full:.0f}分，{call}取得了{total:.0f}分的好成绩，得分率{rate:.0%}，表现相当出色！")
+        pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，得分率{rate:.0%}，整体表现相当出色。")
     elif rate >= 0.6:
-        pts.append(f"本次试卷满分{full:.0f}分，{call}获得{total:.0f}分，得分率{rate:.0%}，整体基础比较扎实。")
+        pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，得分率{rate:.0%}，整体基础比较扎实。")
     else:
-        pts.append(f"本次试卷满分{full:.0f}分，{call}获得{total:.0f}分，得分率{rate:.0%}，还有一定的提升空间。")
+        pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，得分率{rate:.0%}，还有一定的提升空间。")
     if sec:
         weak = [s for s in sec if s["rate"] < 0.6]
         strong = [s for s in sec if s["rate"] >= 0.7]

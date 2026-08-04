@@ -198,11 +198,8 @@ def video_topic(title: str) -> str:
     return t.strip()
 
 
-def match_videos(knowledge_point_name: str, class_type: str, limit: int = 3) -> list:
-    """根据知识点关键词匹配知识视频（标题/主题包含知识点名或关键词）"""
-    videos = load_catalog(class_type)
-    if not videos:
-        return []
+def _score_videos(knowledge_point_name: str, videos: list) -> list:
+    """按知识点名给视频打分排序，返回 [(score, video)]"""
     kp = None
     for sec in SECTIONS:
         for k in sec["knowledge_points"]:
@@ -229,4 +226,36 @@ def match_videos(knowledge_point_name: str, class_type: str, limit: int = 3) -> 
         if score > 0:
             scored.append((score, v))
     scored.sort(key=lambda x: -x[0])
-    return [v for _, v in scored[:limit]]
+    return scored
+
+
+def match_videos(knowledge_point_name: str, class_type: str, limit: int = 3) -> list:
+    """根据知识点关键词匹配知识视频。
+    匹配不到时回退到同板块内关键词相近的知识点（以其视频作为相近推荐）。
+    """
+    videos = load_catalog(class_type)
+    if not videos:
+        return []
+    scored = _score_videos(knowledge_point_name, videos)
+    if scored:
+        return [v for _, v in scored[:limit]]
+    # 回退：同板块相近知识点
+    kp = None
+    kp_section = None
+    for sec in SECTIONS:
+        for k in sec["knowledge_points"]:
+            if k["name"] == knowledge_point_name:
+                kp, kp_section = k, sec
+                break
+    if kp and kp_section:
+        kp_keywords = set(kp["keywords"])
+        for other in kp_section["knowledge_points"]:
+            if other["name"] == knowledge_point_name:
+                continue
+            overlap = kp_keywords & set(other["keywords"])
+            if not overlap and not (kp["name"] in other["name"] or other["name"] in kp["name"]):
+                continue
+            scored2 = _score_videos(other["name"], videos)
+            if scored2:
+                return [v for _, v in scored2[:limit]]
+    return []
