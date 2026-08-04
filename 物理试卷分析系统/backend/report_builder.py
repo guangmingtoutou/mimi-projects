@@ -145,35 +145,35 @@ def difficulty_badge(label: str) -> str:
     return f'<span class="badge {m.get(label, "badge-mid")}">{label}</span>'
 
 
+def student_call(name: str) -> str:
+    """学生称呼：两个字直接“XX同学”；超过两个字取后两个字加“同学”"""
+    n = (name or "").strip()
+    if not n:
+        return "同学"
+    if len(n) <= 2:
+        return f"{n}同学"
+    return f"{n[-2:]}同学"
+
+
 def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode: str = "individual") -> str:
-    """生成完整报告 HTML。meta: 老师/学生/班型/学校等"""
+    """生成完整报告 HTML。meta: 老师/学生/学校等（不展示班型与排名）"""
     school = meta.get("school", "")
     title = "个人试卷分析报告" if mode == "individual" else "试卷分析报告"
     sub = f"{school} · 物理学科" if school else "物理学科 · 学情分析报告"
 
-    meta_line = ""
-    if mode == "individual":
-        meta_line = (f"<div class='meta'><span>老师：{meta.get('teacher', '')}</span>"
-                     f"<span>学生：{meta.get('student', '')}</span>"
-                     f"<span>班型：{meta.get('class_type', '')}</span>"
-                     f"<span>总分：{analysis['total_got']:.0f} / {analysis['total_full']:.0f}</span>"
-                     f"<span>整体难度：{difficulty_badge(analysis['overall_difficulty'])}</span></div>")
-    else:
-        meta_line = (f"<div class='meta'><span>老师：{meta.get('teacher', '')}</span>"
-                     f"<span>学生：{meta.get('student', '')}</span>"
-                     f"<span>班型：{meta.get('class_type', '')}</span>"
-                     f"<span>总分：{analysis['total_got']:.0f} / {analysis['total_full']:.0f}</span>"
-                     f"<span>排名：{meta.get('rank', '-')} / {meta.get('total_students', '-')}</span></div>")
+    # 顶部信息：老师 + 学生（不显示排名/班型/分数）
+    meta_line = (f"<div class='meta'><span>老师：{meta.get('teacher', '')}</span>"
+                 f"<span>学生：{meta.get('student', '')}</span></div>")
 
+    # 顶部卡片：选择题得分率 / 非选择题得分率 / 试卷整体难度
     cards = f"""
     <div class="cards">
-      <div class="card"><div class="v">{analysis['total_got']:.0f}</div><div class="k">总得分（满分 {analysis['total_full']:.0f}）</div></div>
-      <div class="card green"><div class="v">{analysis['overall_rate']:.0%}</div><div class="k">整体得分率</div></div>
-      <div class="card orange"><div class="v">{analysis['total_lost']:.0f}</div><div class="k">总丢分</div></div>
+      <div class="card green"><div class="v">{analysis['choice_rate']:.0%}</div><div class="k">选择题得分率</div></div>
+      <div class="card orange"><div class="v">{analysis['nonchoice_rate']:.0%}</div><div class="k">非选择题得分率</div></div>
       <div class="card gray"><div class="v">{analysis['overall_difficulty']}</div><div class="k">试卷整体难度</div></div>
     </div>"""
 
-    # 1. 整体难度与板块高考占比
+    # 一、试卷整体分析：文字分析在前，板块表格在后
     sec_rows = ""
     for s in analysis["sections"]:
         sec_rows += (f"<tr><td><span class='section-head'>{s['name']}</span></td>"
@@ -191,56 +191,56 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     </table>
     <div class="note">{advice.get('section_importance', '')}</div>"""
 
-    # 2. 各板块丢分汇总
-    loss_rows = ""
-    for s in analysis["sections"]:
-        if not s["loss_questions"]:
+    # 二、错题分析：每个错题一行（题目序号、板块、丢分、考察知识点）
+    wrong_rows = ""
+    for q in analysis["per_question"]:
+        if q["lost_score"] <= 0:
             continue
-        qlist = "、".join(q["qid"] for q in s["loss_questions"])
-        kps = set(q["knowledge_point"] for q in s["loss_questions"] if q["knowledge_point"])
-        loss_rows += (f"<tr><td>{s['name']}</td><td>{s['lost_score']:.0f}</td>"
-                      f"<td>{qlist}</td><td>{'、'.join(kps) if kps else '未标注'}</td></tr>")
+        wrong_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td>"
+                       f"<td class='wrong'>{q['lost_score']:.0f}</td>"
+                       f"<td>{q['knowledge_point'] or '未标注'}</td></tr>")
     part2 = f"""
-    <h2>二、板块丢分汇总</h2>
+    <h2>二、错题分析</h2>
     <table>
-      <tr><th>板块</th><th>丢分</th><th>对应题目</th><th>考察知识点</th></tr>
-      {loss_rows or '<tr><td colspan="4">本试卷无丢分题目，表现很棒！</td></tr>'}
-    </table>
-    <div class="chart">{chart_question_scores(analysis)}</div>"""
+      <tr><th>题目序号</th><th>板块</th><th>丢分</th><th>考察知识点</th></tr>
+      {wrong_rows or '<tr><td colspan="4">本试卷无丢分题目，表现很棒！</td></tr>'}
+    </table>"""
 
-    # 3. 强化学习计划
-    plan_items = ""
+    # 三、强化学习计划：表格（强化知识点、针对题型、对应强化学习视频；不显示丢分）
+    qtype_map = {q["qid"]: q["qtype"] for q in analysis["per_question"]}
+    plan_rows = ""
     if study_plan:
         for item in study_plan:
-            vids = "".join(f'<span class="video-tag">📺 {v["title"]}</span>' for v in item["videos"]) if item["videos"] else '<span style="color:#99a;font-size:12px">暂无匹配视频（可导入知识视频目录）</span>'
-            plan_items += (f'<div class="plan-item"><div class="dot"></div>'
-                           f'<div><div class="kp">{item["knowledge_point"]}（{item["section"]}，丢 {item["lost_score"]:.0f} 分）</div>'
-                           f'<div style="font-size:12px;color:#667;margin:4px 0">对应题目：{"、".join(q["qid"] for q in item["questions"])}</div>'
-                           f'<div>{vids}</div></div></div>')
+            types = "、".join(dict.fromkeys(
+                qtype_map.get(q["qid"], "") for q in item["questions"] if qtype_map.get(q["qid"])))
+            vids = "".join(f'<span class="video-tag">{v["title"]}</span>' for v in item["videos"])
+            vids = vids or '<span style="color:#99a;font-size:12px">暂无匹配视频（可导入知识视频目录）</span>'
+            plan_rows += (f"<tr><td>{item['knowledge_point']}</td><td>{types or '—'}</td><td>{vids}</td></tr>")
     else:
-        plan_items = '<div class="note">本次考试没有需要强化的丢分知识点，保持当前节奏即可。</div>'
+        plan_rows = '<tr><td colspan="3">本次考试没有需要强化的丢分知识点，保持当前节奏即可。</td></tr>'
     part3 = f"""
     <h2>三、强化学习计划</h2>
-    {plan_items}"""
+    <table>
+      <tr><th>强化知识点</th><th>针对题型</th><th>对应强化学习视频</th></tr>
+      {plan_rows}
+    </table>"""
 
-    # 4. 鼓励与建议
+    # 四、总结（鼓励带学生称呼，建议围绕直播课/知识视频）
     part4 = f"""
-    <h2>四、鼓励与后续建议</h2>
+    <h2>四、总结</h2>
     <div class="encourage">{advice.get('encouragement', '')}</div>
     <div class="note" style="margin-top:12px">{advice.get('study_advice', '')}</div>"""
 
-    # 批量模式附加：逐题作答情况
-    extra = ""
-    if mode == "batch":
-        q_rows = ""
-        for q in analysis["per_question"]:
-            status = f'<span class="right">正确</span>' if q["correct"] else f'<span class="wrong">错误/丢分</span>'
-            q_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td><td>{q['qtype']}</td>"
-                       f"<td>{q['full_score']:.0f}</td><td>{q['got_score']:.0f}</td><td>{status}</td>"
-                       f"<td>{q['student_answer'] or '—'}</td><td>{q['correct_answer'] or '—'}</td>"
-                       f"<td>{q['knowledge_point'] or '未标注'}</td></tr>")
-        extra = f"""
-    <h2>五、逐题作答情况</h2>
+    # 附：答题明细（原“五、逐题作答情况”）
+    q_rows = ""
+    for q in analysis["per_question"]:
+        status = f'<span class="right">正确</span>' if q["correct"] else f'<span class="wrong">错误/丢分</span>'
+        q_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td><td>{q['qtype']}</td>"
+                   f"<td>{q['full_score']:.0f}</td><td>{q['got_score']:.0f}</td><td>{status}</td>"
+                   f"<td>{q['student_answer'] or '—'}</td><td>{q['correct_answer'] or '—'}</td>"
+                   f"<td>{q['knowledge_point'] or '未标注'}</td></tr>")
+    extra = f"""
+    <h2>附：答题明细</h2>
     <table>
       <tr><th>题号</th><th>板块</th><th>题型</th><th>满分</th><th>得分</th><th>正误</th><th>学生答案</th><th>正确答案</th><th>知识点</th></tr>
       {q_rows}

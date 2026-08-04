@@ -61,3 +61,15 @@ td input, td select { width: 100%; min-width: 70px; padding: 6px 8px; font-size:
 .toast.hidden { display: none; }
 .del-btn { color: #c92a2a; cursor: pointer; font-weight: 700; background: none; border: none; font-size: 15px; }
 @media (max-width: 860px) { .grid-3 { grid-template-columns: 1fr; } }
+
+/* ---- v0.2 新增：进度条 / 导出对话框 / 知识点说明 ---- */
+.progress-track { background: #e9ecef; border-radius: 8px; height: 14px; overflow: hidden; margin: 12px 0; }
+.progress-bar { background: linear-gradient(90deg,#3B6FD4,#12B886); height: 100%; width: 0%; border-radius: 8px; transition: width .5s ease; }
+.modal { position: fixed; inset: 0; background: rgba(20,30,50,.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal-box { background: #fff; border-radius: 14px; padding: 24px 28px; width: min(560px, 92vw); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.18); }
+.modal-box h3 { margin: 0 0 14px; color: #1f3a7a; }
+.modal-list { overflow-y: auto; border: 1px solid #e3e8f0; border-radius: 8px; padding: 8px; margin: 10px 0; max-height: 40vh; }
+.exp-item { display: block; padding: 6px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.exp-item:hover { background: #f1f4fb; }
+.kp-desc { font-size: 11px; color: #8896a8; margin-top: 2px; line-height: 1.4; min-height: 14px; }
+select { max-width: 100%; }

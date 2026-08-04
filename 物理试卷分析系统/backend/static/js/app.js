@@ -1,10 +1,11 @@
-/* 试卷分析系统 - 前端逻辑 */
+/* 试卷分析系统 - 前端逻辑 v0.2 */
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
 
 let SECTIONS = [];
 let QTYPES = [];
+let OUTLINE = [];           // 高考物理知识大纲（知识点+说明）
 let indFiles = [];          // 个人分析上传的试卷文件
 let indQuestions = [];      // 个人分析题目配置
 let batFile = null;         // 批量 xlsx 文件信息
@@ -14,6 +15,7 @@ let batPaperQuestions = []; // 批量试卷提取出的题目（含原文）
 let indPaperQuestions = []; // 个人试卷提取出的题目（含原文）
 let catVideos = [];         // 当前班型视频目录
 let lastResult = {};        // 最近生成的报告
+let lastJobId = null;       // 批量任务 ID
 
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
@@ -43,6 +45,19 @@ function typeOptions(selected) {
   return QTYPES.map((t) => `<option value="${t.key}" ${t.key === selected ? "selected" : ""}>${t.name}</option>`).join("");
 }
 
+/* 知识点下拉：按大纲板块分组，说明放 title */
+function kpOptions(selected) {
+  let html = '<option value="">-- 请选择知识点 --</option>';
+  for (const sec of OUTLINE) {
+    html += `<optgroup label="${esc(sec.name)}">`;
+    for (const kp of sec.knowledge_points) {
+      html += `<option value="${esc(kp.name)}" data-sec="${esc(sec.key)}" data-desc="${esc(kp.desc || "")}" ${kp.name === selected ? "selected" : ""}>${esc(kp.name)}</option>`;
+    }
+    html += "</optgroup>";
+  }
+  return html;
+}
+
 /* ---------- 标签页切换 ---------- */
 document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -61,9 +76,8 @@ async function init() {
     const kb = await api("/api/sections");
     SECTIONS = kb.sections;
     QTYPES = kb.question_types;
-    renderIndQuestions();
-    renderBatQuestions();
   } catch (e) { toast("初始化失败: " + e.message, true); }
+  await loadOutline();
   try {
     const s = await api("/api/settings");
     $("#set-mode").value = s.engine_mode;
@@ -76,6 +90,14 @@ async function init() {
       ? "OCR 组件可用：上传目录截图后自动识别视频标题。"
       : "提示：OCR 组件未安装（pip install rapidocr-onnxruntime），目前只能手动录入视频标题。";
   } catch (e) {}
+}
+async function loadOutline() {
+  try {
+    const o = await api("/api/outline");
+    OUTLINE = o.sections || [];
+    renderIndQuestions();
+    renderBatQuestions();
+  } catch (e) { toast("大纲加载失败: " + e.message, true); }
 }
 init();
 
@@ -112,18 +134,38 @@ function renderIndQuestions() {
   tb.innerHTML = indQuestions.map((q, i) => `
     <tr data-i="${i}">
       <td><input value="${esc(q.qid)}" oninput="updQ('ind',${i},'qid',this.value)"></td>
-      <td><select onchange="updQ('ind',${i},'qtype',this.value)">${typeOptions(q.qtype)}</select></td>
-      <td><select onchange="updQ('ind',${i},'section_key',this.value)">${sectionOptions(q.section_key)}</select></td>
+      <td><select onchange="updQ('ind',${i},'qtype',this)">${typeOptions(q.qtype)}</select></td>
+      <td>
+        <select data-i="${i}" onchange="updQ('ind',${i},'kp',this)">${kpOptions(q.knowledge_point)}</select>
+        <div class="kp-desc" id="ind-kp-desc-${i}">${esc(kpDesc(q.knowledge_point))}</div>
+      </td>
       <td><input type="number" step="0.5" min="0" value="${q.full_score}" oninput="updQ('ind',${i},'full_score',this.value)"></td>
       <td><input type="number" step="0.5" min="0" value="${q.got_score}" oninput="updQ('ind',${i},'got_score',this.value)"></td>
-      <td><input type="text" readonly value="${+q.got_score >= +q.full_score ? "✓ 正确" : "✗ 错题"}" style="text-align:center"></td>
-      <td><input value="${esc(q.knowledge_point)}" oninput="updQ('ind',${i},'knowledge_point',this.value)"></td>
-      <td><button class="del-btn" onclick="delQ('ind',${i})">×</button></td>
+      <td><button class="del-btn" onclick="delQ('ind',${i})">✕</button></td>
     </tr>`).join("");
 }
-window.updQ = (mode, i, field, val) => {
+function kpDesc(name) {
+  if (!name) return "";
+  for (const sec of OUTLINE) {
+    const kp = sec.knowledge_points.find((k) => k.name === name);
+    if (kp) return kp.desc || "";
+  }
+  return "";
+}
+window.updQ = (mode, i, field, el) => {
   const arr = mode === "ind" ? indQuestions : batQuestions;
-  arr[i][field] = val;
+  if (field === "kp") {
+    const opt = el.selectedOptions[0];
+    arr[i].knowledge_point = el.value;
+    arr[i].section_key = (opt && opt.dataset.sec) || "lixue";
+    const descEl = document.getElementById(`${mode}-kp-desc-${i}`);
+    if (descEl) descEl.textContent = (opt && opt.dataset.desc) || "";
+    if (mode === "bat") renderBatQuestions(); else renderIndQuestions();
+  } else if (field === "qtype") {
+    arr[i].qtype = el.value;
+  } else {
+    arr[i][field] = el.value;
+  }
   if (mode === "ind" && (field === "got_score" || field === "full_score")) renderIndQuestions();
 };
 window.delQ = (mode, i) => {
@@ -149,8 +191,9 @@ $("#ind-extract").addEventListener("click", async () => {
       qid: q.qid, qtype: "single", section_key: "lixue",
       full_score: q.score ?? 4, got_score: q.score ?? 0, knowledge_point: "",
     }));
-    toast(`已提取 ${indQuestions.length} 道题，请核对题型/板块/分值`);
+    toast(`已提取 ${indQuestions.length} 道题，自动匹配知识点中…`);
     renderIndQuestions();
+    await suggestKnowledge("ind");   // 自动匹配题型/板块/知识点
   } catch (err) { toast("提取失败: " + err.message, true); }
 });
 
@@ -164,6 +207,8 @@ $("#ind-run").addEventListener("click", async () => {
   };
   if (!payload.student) return toast("请填写学生姓名", true);
   if (!payload.questions.length) return toast("请至少配置一道题", true);
+  const emptyKp = payload.questions.filter((q) => !q.knowledge_point);
+  if (emptyKp.length) return toast(`还有 ${emptyKp.length} 道题未选择考察知识点（必填）`, true);
   try {
     const r = await api("/api/analyze/individual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     lastResult = r;
@@ -200,7 +245,8 @@ async function suggestKnowledge(mode) {
       }
     }
     if (mode === "ind") renderIndQuestions(); else renderBatQuestions();
-    toast(`已标注 ${n} 道题（关键词匹配），请核对`);
+    const empty = arr.filter((q) => !q.knowledge_point).length;
+    toast(`已标注 ${n} 道题，剩余 ${empty} 道需手动选择知识点`);
   } catch (err) { toast("标注失败: " + err.message, true); }
 }
 $("#ind-suggest").addEventListener("click", () => suggestKnowledge("ind"));
@@ -217,7 +263,6 @@ $("#bat-xlsx").addEventListener("change", async (e) => {
     batFile = r;
     $("#bat-info").textContent = `已解析：${r.student_count} 名学生，${r.question_ids.length} 道题，老师：${r.teachers.join("、") || "无（未识别到老师列）"}`;
     $("#bat-teacher").innerHTML = `<option value="">-- 请选择老师 --</option>` + r.teachers.map((t) => `<option>${esc(t)}</option>`).join("");
-    // 用表头信息自动填充题目配置（题型/默认分值来自表格）
     batQuestions = (r.question_meta || []).map((m) => ({
       qid: m.qid,
       qtype: m.qtype || "single",
@@ -225,7 +270,7 @@ $("#bat-xlsx").addEventListener("change", async (e) => {
       full_score: m.default_score || "",
       knowledge_point: "",
     }));
-    toast(`已自动识别 ${batQuestions.length} 道题（题型/分值来自表格），请补充板块和知识点`);
+    toast(`已自动识别 ${batQuestions.length} 道题，请补充考察知识点`);
     renderBatQuestions();
   } catch (err) { toast("解析失败: " + err.message, true); }
 });
@@ -243,7 +288,6 @@ $("#bat-extract").addEventListener("click", async () => {
     const r = await api("/api/paper/text", { method: "POST", body: fd });
     if (!r.questions.length) return toast("未能识别题目，请手动添加", true);
     batPaperQuestions = r.questions;
-    // 与已有配置（来自 xlsx 表头）按题号合并：有分值则填入，缺失则追加
     const existing = new Map(batQuestions.map((q) => [q.qid, q]));
     for (const pq of r.questions) {
       const cur = existing.get(pq.qid);
@@ -275,10 +319,11 @@ $("#bat-extract").addEventListener("click", async () => {
           assigned += parseFloat(p.full_score);
         }
       });
-      batQuestions = batQuestions.filter((q) => String(q.qid) !== pid); // 大题已拆分，不再单独计分
+      batQuestions = batQuestions.filter((q) => String(q.qid) !== pid);
     }
-    toast(`已合并试卷信息，共 ${batQuestions.length} 道题，请核对题型/板块/分值`);
+    toast(`已合并试卷信息，共 ${batQuestions.length} 道题，自动匹配知识点中…`);
     renderBatQuestions();
+    await suggestKnowledge("bat");
   } catch (err) { toast("提取失败: " + err.message, true); }
 });
 
@@ -287,11 +332,13 @@ function renderBatQuestions() {
   tb.innerHTML = batQuestions.map((q, i) => `
     <tr data-i="${i}">
       <td><input value="${esc(q.qid)}" oninput="updQ('bat',${i},'qid',this.value)"></td>
-      <td><select onchange="updQ('bat',${i},'qtype',this.value)">${typeOptions(q.qtype)}</select></td>
-      <td><select onchange="updQ('bat',${i},'section_key',this.value)">${sectionOptions(q.section_key)}</select></td>
+      <td><select onchange="updQ('bat',${i},'qtype',this)">${typeOptions(q.qtype)}</select></td>
+      <td>
+        <select data-i="${i}" onchange="updQ('bat',${i},'kp',this)">${kpOptions(q.knowledge_point)}</select>
+        <div class="kp-desc" id="bat-kp-desc-${i}">${esc(kpDesc(q.knowledge_point))}</div>
+      </td>
       <td><input type="number" step="0.5" min="0" value="${q.full_score}" oninput="updQ('bat',${i},'full_score',this.value)"></td>
-      <td><input value="${esc(q.knowledge_point)}" oninput="updQ('bat',${i},'knowledge_point',this.value)"></td>
-      <td><button class="del-btn" onclick="delQ('bat',${i})">×</button></td>
+      <td><button class="del-btn" onclick="delQ('bat',${i})">✕</button></td>
     </tr>`).join("");
 }
 $("#bat-add-q").addEventListener("click", () => {
@@ -304,6 +351,8 @@ $("#bat-run").addEventListener("click", async () => {
   const teacher = $("#bat-teacher").value;
   if (!teacher) return toast("请选择授课老师", true);
   if (!batQuestions.length) return toast("请先配置试卷题目", true);
+  const emptyKp = batQuestions.filter((q) => !q.knowledge_point);
+  if (emptyKp.length) return toast(`还有 ${emptyKp.length} 道题未选择考察知识点（必填）`, true);
   const payload = {
     file: batFile.file,
     teacher,
@@ -313,15 +362,90 @@ $("#bat-run").addEventListener("click", async () => {
   };
   try {
     const r = await api("/api/batch/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    lastResult = r;
-    $("#bat-list tbody").innerHTML = r.results.map((s) => `
-      <tr><td>${s.rank || "-"}</td><td>${esc(s.name)}</td><td>${s.score} / ${s.full}</td><td>${(s.rate * 100).toFixed(0)}%</td>
-      <td><a href="${r.zip_url}">查看（打包下载）</a></td></tr>`).join("");
-    $("#bat-result").classList.remove("hidden");
-    toast(`已为 ${r.count} 名学生生成报告`);
+    lastJobId = r.job_id;
+    $("#bat-result").classList.add("hidden");
+    $("#bat-progress").classList.remove("hidden");
+    $("#bat-progress-bar").style.width = "0%";
+    $("#bat-progress-text").textContent = "任务已启动…";
+    pollJob();
   } catch (err) { toast(err.message, true); }
 });
-$("#bat-zip").addEventListener("click", () => window.open(lastResult.zip_url));
+
+function pollJob() {
+  const timer = setInterval(async () => {
+    try {
+      const p = await api("/api/batch/progress/" + lastJobId);
+      // 每个学生经历 计算/写HTML/导出 3 个阶段，done 会超过 total，用 min 归一化
+      const pct = p.total ? Math.min(100, Math.round((p.done / p.total / 3) * 100)) : 0;
+      const label = p.total ? `${Math.min(p.done, p.total)}/${p.total} 名学生（${pct}%）` : "";
+      $("#bat-progress-bar").style.width = pct + "%";
+      $("#bat-progress-text").textContent = `${label}${p.current ? " · " + esc(p.current) : ""}`;
+      if (p.status === "done") {
+        clearInterval(timer);
+        showBatchResult(p.result);
+      } else if (p.status === "error") {
+        clearInterval(timer);
+        $("#bat-progress").classList.add("hidden");
+        toast("批量生成失败: " + (p.error || "未知错误"), true);
+      }
+    } catch (e) { /* 服务暂不可达，继续轮询 */ }
+  }, 1500);
+}
+
+function showBatchResult(result) {
+  $("#bat-progress").classList.add("hidden");
+  lastResult = { rid: lastJobId, results: result.results };
+  $("#bat-list tbody").innerHTML = result.results.map((s) => `
+    <tr>
+      <td>${s.rank || "-"}</td>
+      <td>${esc(s.name)}</td>
+      <td>${esc(s.class_type || "-")}</td>
+      <td>${s.score} / ${s.full}</td>
+      <td>${(s.rate * 100).toFixed(0)}%</td>
+      <td>${s.pdf ? "✅" : "—"}</td>
+      <td>${s.image ? "✅" : "—"}</td>
+    </tr>`).join("");
+  $("#bat-result").classList.remove("hidden");
+  toast(`已为 ${result.count} 名学生生成报告（PDF + 长图）`);
+}
+
+/* ---- 导出对话框 ---- */
+$("#bat-zip").addEventListener("click", () => {
+  if (!lastResult.results || !lastResult.results.length) return toast("请先运行批量分析", true);
+  $("#exp-names").innerHTML = lastResult.results.map((s) => `
+    <label class="exp-item"><input type="checkbox" class="exp-chk" value="${esc(s.name)}" checked> ${esc(s.name)}（${s.score}/${s.full} 分）</label>`).join("");
+  $("#export-modal").classList.remove("hidden");
+});
+$("#exp-all").addEventListener("change", (e) => {
+  document.querySelectorAll(".exp-chk").forEach((c) => (c.checked = e.target.checked));
+});
+$("#exp-do").addEventListener("click", async () => {
+  const names = [...document.querySelectorAll(".exp-chk:checked")].map((c) => c.value);
+  if (!names.length) return toast("请至少选择一名学生", true);
+  try {
+    const r = await api("/api/batch/export", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rid: lastResult.rid, names, format: $("#exp-format").value }) });
+    window.open(r.zip_url);
+    $("#export-modal").classList.add("hidden");
+    toast(`已导出 ${r.count} 份报告`);
+  } catch (err) { toast(err.message, true); }
+});
+$("#exp-cancel").addEventListener("click", () => $("#export-modal").classList.add("hidden"));
+$("#exp-cleanup").addEventListener("click", doCleanup);
+$("#bat-cleanup").addEventListener("click", doCleanup);
+
+async function doCleanup() {
+  if (!confirm("确定清除所有已生成的报告与上传文件缓存？历史记录将一并清空，此操作不可恢复。")) return;
+  try {
+    await api("/api/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reports: true, tmp: true, uploads: true }) });
+    $("#bat-result").classList.add("hidden");
+    $("#bat-progress").classList.add("hidden");
+    $("#export-modal").classList.add("hidden");
+    lastResult = {};
+    toast("缓存已清除");
+  } catch (err) { toast(err.message, true); }
+}
 
 /* ================= 视频目录 ================= */
 async function loadCatalog() {
@@ -397,6 +521,34 @@ $("#set-clear-key").addEventListener("click", async () => {
     $("#set-key").value = "";
     $("#set-status").textContent = "✅ API Key 已清除";
     setTimeout(() => ($("#set-status").textContent = ""), 3200);
+  } catch (err) { toast(err.message, true); }
+});
+
+/* 大纲导入 / 恢复 */
+$("#set-outline").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  let data;
+  try { data = JSON.parse(await f.text()); }
+  catch (err) { return toast("JSON 解析失败，请检查文件格式", true); }
+  const sections = data.sections || data;
+  if (!Array.isArray(sections) || !sections.length) return toast("大纲内容为空（需 sections 数组）", true);
+  try {
+    const r = await api("/api/outline/import", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: data.version || "import", sections }) });
+    await loadOutline();
+    $("#outline-status").textContent = `✅ 已导入 ${r.knowledge_points} 个知识点`;
+    toast("大纲导入成功");
+  } catch (err) { toast("导入失败: " + err.message, true); }
+});
+$("#outline-reset").addEventListener("click", async () => {
+  if (!confirm("恢复内置高考物理大纲？自定义内容将被清除。")) return;
+  try {
+    await api("/api/outline/reset", { method: "POST" });
+    await loadOutline();
+    $("#outline-status").textContent = "✅ 已恢复内置大纲";
+    toast("已恢复内置大纲");
   } catch (err) { toast(err.message, true); }
 });
 

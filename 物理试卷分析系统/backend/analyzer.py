@@ -166,6 +166,17 @@ def analyze(questions: list[Question]) -> dict:
             "rate": round(got / full, 3) if full else 0,
         })
 
+    # 选择题 / 非选择题 得分率（选择题=单选+多选，其余为非选择题）
+    choice_keys = {"single", "multi"}
+    choice_qs = [q for q in questions if q.qtype in choice_keys]
+    nonchoice_qs = [q for q in questions if q.qtype not in choice_keys]
+    choice_full = sum(q.full_score for q in choice_qs)
+    choice_got = sum(q.got_score for q in choice_qs)
+    non_full = sum(q.full_score for q in nonchoice_qs)
+    non_got = sum(q.got_score for q in nonchoice_qs)
+    choice_rate = round(choice_got / choice_full, 3) if choice_full else 0
+    non_rate = round(non_got / non_full, 3) if non_full else 0
+
     # 知识点丢分聚合
     kp_loss = {}
     for q in per_question:
@@ -191,6 +202,8 @@ def analyze(questions: list[Question]) -> dict:
         "total_lost": round(total_full - total_got, 1),
         "overall_rate": round(overall_rate, 3),
         "overall_difficulty": overall_difficulty,
+        "choice_rate": choice_rate,
+        "nonchoice_rate": non_rate,
         "per_question": per_question,
         "sections": sections,
         "qtypes": qtypes,

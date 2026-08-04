@@ -7,9 +7,10 @@ from pathlib import Path
 
 from .analyzer import Question, analyze, build_study_plan, grade_question
 from .config import REPORT_DIR
+from .knowledge import load_catalog
 from .llm import analyze_paper_llm, llm_available, template_advice
 from .report_builder import build_html
-from .exporters import html_to_pdf
+from .exporters import html_to_long_image, html_to_pdf
 
 NAME_KEYS = ["学生姓名", "姓名", "学生", "名字"]
 TEACHER_KEYS = ["规划师", "老师", "教师"]
@@ -225,16 +226,27 @@ def _merge_paper_config(paper_config: list, question_meta: list) -> list:
     return merged
 
 
-def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: str = "hybrid") -> dict:
-    """为指定老师名下的所有学生逐个生成报告，返回 zip 路径与统计信息"""
+def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: str = "hybrid",
+              progress_cb: callable = None) -> dict:
+    """为指定老师名下的所有学生逐个生成报告（HTML + PDF + 长图），返回 zip 路径与统计信息。
+    progress_cb(done, total, current) 可选，用于前端展示进度。
+    """
     students = [s for s in parsed["students"] if s["teacher"] == teacher] if teacher else parsed["students"]
     if not students:
         raise XlsxParseError(f"老师「{teacher}」名下没有学生")
+    total = len(students)
+    done = 0
+
+    def _tick(current: str = ""):
+        nonlocal done
+        done += 1
+        if progress_cb:
+            progress_cb(done, total, current)
 
     paper_config = _merge_paper_config(paper_config, parsed.get("question_meta", []))
     qconfig = {str(q["qid"]): q for q in paper_config}
     answer_key = parsed["answer_key"]
-    class_type = meta.get("class_type", "目标班")
+    default_class_type = meta.get("class_type", "目标班")
     use_llm = mode in ("llm", "hybrid") and llm_available()
     global_partial = bool(meta.get("multi_partial", False))
 
@@ -260,32 +272,35 @@ def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: 
             q.got_score = grade_question(q, multi_partial=global_partial or q.partial_score is not None)
             questions.append(q)
         analysis = analyze(questions)
+        # 班型按学生数据匹配：有班型字段用对应班型，否则默认目标班
+        s_class = (s.get("class_type") or "").strip() or default_class_type
         if use_llm:
             try:
-                advice = analyze_paper_llm(analysis, questions, class_type, [])
+                advice = analyze_paper_llm(analysis, questions, s_class, load_catalog(s_class), student=s["name"])
             except Exception:
-                advice = template_advice(analysis)
+                advice = template_advice(analysis, student=s["name"])
         else:
-            advice = template_advice(analysis)
-        plan = build_study_plan(analysis, class_type)
+            advice = template_advice(analysis, student=s["name"])
+        plan = build_study_plan(analysis, s_class)
         name_safe = re.sub(r'[\\/:*?"<>|]', "_", s["name"])
         return {
             "name": s["name"], "name_safe": name_safe, "score": analysis["total_got"],
             "full": analysis["total_full"], "rate": analysis["overall_rate"],
             "analysis": analysis, "advice": advice, "plan": plan,
-            "class_type": s.get("class_type") or class_type,
+            "class_type": s_class,
         }
 
     items = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         for r in pool.map(_compute_one, students):
             items.append(r)
+            _tick(f"计算 {r['name']}")
     items.sort(key=lambda x: -x["score"])
     for idx, item in enumerate(items):
         item["rank"] = idx + 1
         item["total_students"] = len(items)
 
-    # 第二步：并行写 HTML（带排名）
+    # 第二步：并行写 HTML（带排名；报告内不显示排名，仅用于排序）
     def _write_html(item):
         m = dict(meta)
         m["student"] = item["name"]
@@ -303,29 +318,39 @@ def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: 
     with ThreadPoolExecutor(max_workers=4) as pool:
         for r in pool.map(_write_html, items):
             built.append(r)
+            _tick(f"生成报告 {r['name']}")
 
-    # 第三步：并行导出 PDF（每个学生独立 Edge 进程）
-    def _pdf_one(item):
+    # 第三步：并行导出 PDF + 长图（每个学生独立 Edge 进程）
+    def _export_one(item):
+        out = {"pdf": None, "image": None}
         try:
             pdf_path = zip_dir / f"{item['name_safe']}_试卷分析报告.pdf"
             html_to_pdf(item["html_path"], pdf_path)
-            return {**item, "pdf": pdf_path.name}
+            out["pdf"] = pdf_path.name
         except Exception as e:
             print(f"[warn] {item['name']} PDF 导出失败: {e}")
-            return {**item, "pdf": None}
+        try:
+            img_path = zip_dir / f"{item['name_safe']}_试卷分析报告.png"
+            html_to_long_image(item["html_path"], img_path)
+            out["image"] = img_path.name
+        except Exception as e:
+            print(f"[warn] {item['name']} 长图导出失败: {e}")
+        return {**item, **out}
 
     results = []
     with ThreadPoolExecutor(max_workers=4) as pool:
-        for r in pool.map(_pdf_one, built):
+        for r in pool.map(_export_one, built):
             results.append({
                 "name": r["name"], "score": r["score"], "full": r["full"],
-                "rate": r["rate"], "html": r["html_path"].name, "pdf": r["pdf"],
+                "rate": r["rate"], "html": r["html_path"].name, "pdf": r["pdf"], "image": r["image"],
                 "rank": r["rank"], "total_students": r["total_students"],
+                "class_type": r["class_type"],
             })
+            _tick(f"导出 {r['name']}")
 
     zip_path = REPORT_DIR / f"batch_{meta.get('report_id', 'tmp')}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(zip_dir.glob("*.pdf")) + sorted(zip_dir.glob("*.html")):
+        for f in sorted(zip_dir.glob("*.pdf")) + sorted(zip_dir.glob("*.png")) + sorted(zip_dir.glob("*.html")):
             zf.write(f, f.name)
     results.sort(key=lambda r: -r["score"])
     return {"zip_path": str(zip_path), "results": results, "count": len(results)}

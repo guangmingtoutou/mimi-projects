@@ -70,16 +70,17 @@ def build_paper_context(analysis: dict, questions_meta: list, class_type: str, v
     return "\n".join(lines)
 
 
-def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, videos: list) -> dict:
+def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, videos: list, student: str = "") -> dict:
     """大模型生成：试卷难度评析、知识点补充、强化建议、鼓励语"""
     context = build_paper_context(analysis, questions_meta, class_type, videos)
+    call = student_call(student)
     user_msg = f"""请基于以下学情数据输出 JSON（严格按此结构）：
 {{
-  "paper_comment": "试卷整体难度评析（结合得分率与板块结构，150字内）",
+  "paper_comment": "试卷整体分析（约350字：整体难度与得分率，各板块强弱，选择题/非选择题表现，主要失分点，复习方向）",
   "section_importance": "各板块在高考中的占比与重要性说明（150字内）",
   "knowledge_supplement": [{{"qid": "题号", "knowledge_point": "规范知识点名称"}}],
-  "study_advice": "针对主要丢分板块的强化学习建议（200字内，可提及对应知识视频标题）",
-  "encouragement": "一段真诚的鼓励和后续学习建议（120字内）"
+  "study_advice": "后续学习建议（约150字，围绕完成直播课、观看知识视频展开）",
+  "encouragement": "一段真诚的鼓励（约100字，以「{call}」开头，使用学生称呼）"
 }}
 学情数据：
 {context}"""
@@ -90,39 +91,60 @@ def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, vid
     return chat_json(messages)
 
 
-def template_advice(analysis: dict) -> dict:
+def student_call(name: str) -> str:
+    """学生称呼：两个字直接“XX同学”；超过两个字取后两个字加“同学”"""
+    n = (name or "").strip()
+    if not n:
+        return "同学"
+    if len(n) <= 2:
+        return f"{n}同学"
+    return f"{n[-2:]}同学"
+
+
+def template_advice(analysis: dict, student: str = "") -> dict:
     """纯规则模式的模板化建议文案（不依赖网络）"""
     sec = analysis["sections"]
-    worst = sec[0] if sec else None
-    best = sec[-1] if sec else None
     total = analysis["total_got"]
     full = analysis["total_full"]
     rate = analysis["overall_rate"]
+    choice_rate = analysis.get("choice_rate", 0)
+    non_rate = analysis.get("nonchoice_rate", 0)
 
-    if rate >= 0.85:
-        level = "非常出色"
-    elif rate >= 0.7:
-        level = "良好"
-    elif rate >= 0.5:
-        level = "中等"
-    elif rate >= 0.3:
-        level = "偏弱"
-    else:
-        level = "薄弱"
+    # 试卷整体分析（~350字）
+    pts = []
+    pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，整体得分率{rate:.0%}，难度评定为「{analysis['overall_difficulty']}”。")
+    if sec:
+        weak = [s for s in sec if s["rate"] < 0.6]
+        strong = [s for s in sec if s["rate"] >= 0.7]
+        if weak:
+            pts.append(f"从板块分布看，{('、'.join(s['name'] for s in weak[:3]))}等板块失分较多，且这些板块在高考中占比可观，是当前复习必须优先补强的短板。")
+        if strong:
+            pts.append(f"{('、'.join(s['name'] for s in strong[:2]))}等板块掌握较好，说明基础概念与常规题型训练已有成效。")
+    pts.append(f"从题型结构看，选择题得分率{choice_rate:.0%}，非选择题得分率{non_rate:.0%}，非选择题（实验题与计算题）失分相对集中，反映解题步骤规范性、过程书写与综合建模能力仍需加强。")
+    if sec and weak:
+        w = weak[0]
+        kps = set(q["knowledge_point"] for q in w["loss_questions"] if q.get("knowledge_point"))
+        if kps:
+            pts.append(f"丢分最集中的板块是「{w['name']}」，涉及{('、'.join(list(kps)[:3]))}等知识点，建议结合错题逐一回看对应知识视频，再通过同类题巩固。")
+    pts.append("总体来看，基础知识掌握较为扎实，后续复习应以错题为抓手、以视频课为工具，稳步提升综合题得分能力。")
+    paper_comment = "".join(pts)
 
-    lines = []
-    lines.append(f"本次试卷总分 {total} 分（满分 {full} 分），得分率 {rate:.0%}，整体表现{level}。")
-    if worst:
-        lines.append(f"丢分最集中的板块是「{worst['name']}」，共丢 {worst['lost_score']:.0f} 分，是后续复习的重中之重。")
-    if best and best["full_score"] > 0 and best["rate"] >= 0.7 and best["key"] != (worst or {}).get("key"):
-        lines.append(f"「{best['name']}」板块掌握得不错，请继续保持。")
-
-    paper_comment = lines[0] + (" " + lines[1] if len(lines) > 1 else "")
-    study_advice = " ".join(lines[1:]) if len(lines) > 1 else "建议按板块逐一梳理错题，先看对应知识视频，再做同类题巩固。"
+    # 鼓励语（~100字，带学生称呼）
+    call = student_call(student)
     encouragement = (
-        f"这次拿到了 {total} 分，你的努力正在被看见。分数只是暂时的坐标，"
-        "错题才是进步的阶梯——把每一道丢分题都变成会做的题，下一次一定更稳。继续加油！"
+        f"{call}，这次拿到了{total:.0f}分，你的努力正在被看见！分数只是阶段性的坐标，"
+        "错题才是成长的阶梯。接下来的复习，建议优先完成直播课，把丢分板块对应的知识视频逐个看一遍，"
+        "再配合同类题巩固。坚持下去，下一次一定会更稳。加油！"
     )
+
+    # 后续建议（围绕直播课、知识视频）
+    study_advice = (
+        "后续建议：① 按本报告的强化学习计划，优先完成对应直播课的学习；"
+        "② 每天安排固定时间观看丢分知识点匹配的知识视频，边看边做笔记；"
+        "③ 每学完一个知识点，完成3~5道同类题检验掌握效果；"
+        "④ 每周复盘一次错题，确保同类题型不再丢分。"
+    )
+
     return {
         "paper_comment": paper_comment,
         "section_importance": "力学与电磁学在高考物理中合计约占70%的分值，是拉分关键；热学、光学、原子物理以基础概念为主，属于必须拿稳的送分板块；实验题渗透在各板块中，注重原理与数据处理能力。",

@@ -1,10 +1,54 @@
 # -*- coding: utf-8 -*-
-"""高考物理知识体系：板块、知识点、高考占比、重要程度、知识视频映射"""
+"""高考物理知识体系：板块、知识点、高考占比、重要程度、知识视频映射、知识大纲"""
 import json
 import re
 from pathlib import Path
 
-from .config import CATALOG_DIR
+from .config import CATALOG_DIR, DATA_DIR
+
+# 知识大纲文件（考察知识点引用；可导入更新）
+OUTLINE_FILE = DATA_DIR / "outline.json"
+
+
+def load_outline() -> dict:
+    """加载高考物理知识大纲。返回 {"version":..., "sections":[{key,name,knowledge_points:[{name,desc}]}]}
+    文件缺失时回退到内置 SECTIONS（desc 为空）。
+    """
+    if OUTLINE_FILE.exists():
+        try:
+            data = json.loads(OUTLINE_FILE.read_text(encoding="utf-8"))
+            if data.get("sections"):
+                return data
+        except Exception:
+            pass
+    # 回退：从内置 SECTIONS 生成（desc 为空字符串）
+    sections = [{"key": s["key"], "name": s["name"],
+                 "knowledge_points": [{"name": k["name"], "desc": ""} for k in s["knowledge_points"]]}
+                for s in SECTIONS]
+    return {"version": "builtin", "sections": sections}
+
+
+def save_outline(outline: dict) -> dict:
+    """保存/更新知识大纲（导入接口用）"""
+    import datetime
+    outline["updated_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    OUTLINE_FILE.write_text(json.dumps(outline, ensure_ascii=False, indent=2), encoding="utf-8")
+    return outline
+
+
+def reset_outline() -> dict:
+    """删除自定义大纲文件，回退到内置大纲"""
+    OUTLINE_FILE.unlink(missing_ok=True)
+    return load_outline()
+
+
+def knowledge_desc(name: str) -> str:
+    """按知识点名查大纲说明（找不到返回空串）"""
+    for sec in load_outline().get("sections", []):
+        for kp in sec.get("knowledge_points", []):
+            if kp["name"] == name:
+                return kp.get("desc", "")
+    return ""
 
 # ---------------------------------------------------------------
 # 高考物理板块体系（新高考：必修 + 选择性必修，全部必考）
