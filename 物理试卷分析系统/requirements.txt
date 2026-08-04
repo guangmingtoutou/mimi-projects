@@ -1,0 +1,12 @@
+# 物理试卷分析系统 - Python 依赖
+# 安装: pip install -r requirements.txt
+fastapi>=0.110
+uvicorn>=0.29
+matplotlib>=3.8
+openpyxl>=3.1
+requests>=2.31
+pypdf>=4.0
+python-docx>=1.1
+python-multipart>=0.0.9
+# 可选：知识视频目录截图 OCR（不装则只能手动录入）
+rapidocr-onnxruntime>=1.3

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/uploads/
+data/reports/
+data/tmp/
+data/app.db

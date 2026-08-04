@@ -1,0 +1,10 @@
+{
+  "engine_mode": "rule",
+  "llm_base_url": "https://api.deepseek.com",
+  "llm_api_key": "",
+  "llm_model": "deepseek-chat",
+  "llm_temperature": 0.7,
+  "multi_choice_partial": false,
+  "school_name": "",
+  "teacher_default": ""
+}
