@@ -19,49 +19,52 @@ for _f in (r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\simhei.ttf", r"C:\Wi
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "SimSun", "sans-serif"]
 plt.rcParams["axes.unicode_minus"] = False
 
-PALETTE = ["#3B6FD4", "#E8590C", "#12B886", "#F59F00", "#7048E8", "#1098AD", "#E64980", "#5C7CFA"]
-PALETTE_HEX = ["3B6FD4", "E8590C", "12B886", "F59F00", "7048E8", "1098AD", "E64980", "5C7CFA"]
+PALETTE = ["#F08C4A", "#5FB7A2", "#F2B950", "#7FA8D9", "#C47BD1", "#E87A90", "#8FC1A9", "#D9A05B"]
+PALETTE_HEX = ["F08C4A", "5FB7A2", "F2B950", "7FA8D9", "C47BD1", "E87A90", "8FC1A9", "D9A05B"]
 
 CSS = """
 <style>
+  @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f4f6fb; color: #2b3445; }
-  .page { max-width: 900px; margin: 0 auto; background: #fff; padding: 48px 52px; }
-  .header { text-align: center; padding-bottom: 26px; border-bottom: 3px solid #3B6FD4; margin-bottom: 30px; }
-  .header .title { font-size: 26px; font-weight: 700; color: #1f3a7a; letter-spacing: 2px; }
-  .header .sub { margin-top: 10px; font-size: 14px; color: #667; }
-  .header .meta { margin-top: 14px; font-size: 13px; color: #556; }
-  .header .meta span { margin: 0 14px; }
-  .badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 12px; color: #fff; }
-  .badge-easy { background: #12B886; } .badge-mid { background: #F59F00; }
-  .badge-hard { background: #E8590C; } .badge-vhard { background: #E03131; }
-  h2 { font-size: 18px; color: #1f3a7a; margin: 32px 0 14px; padding-left: 12px; border-left: 4px solid #3B6FD4; }
-  .cards { display: flex; gap: 14px; flex-wrap: wrap; }
-  .card { flex: 1; min-width: 170px; background: linear-gradient(135deg,#3B6FD4,#5C7CFA); color: #fff;
-          border-radius: 12px; padding: 16px 18px; }
-  .card .v { font-size: 24px; font-weight: 700; }
-  .card .k { font-size: 12px; opacity: .85; margin-top: 4px; }
-  .card.green { background: linear-gradient(135deg,#12B886,#38D9A9); }
-  .card.orange { background: linear-gradient(135deg,#E8590C,#F59F00); }
-  .card.gray { background: linear-gradient(135deg,#495057,#868E96); }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
-  th, td { border: 1px solid #e3e8f0; padding: 8px 10px; text-align: center; }
-  th { background: #eef2fb; color: #1f3a7a; font-weight: 600; }
-  tr:nth-child(even) td { background: #fafbfe; }
-  .right { color: #12B886; font-weight: 600; } .wrong { color: #E03131; font-weight: 600; }
-  .note { font-size: 13px; color: #667; line-height: 1.8; background: #f8f9fc; border-radius: 8px; padding: 14px 18px; }
-  .plan-item { display: flex; gap: 12px; padding: 12px 14px; border: 1px solid #e3e8f0; border-radius: 10px; margin: 8px 0; }
-  .plan-item .dot { width: 8px; height: 8px; border-radius: 50%; background: #E8590C; margin-top: 6px; flex-shrink: 0; }
-  .plan-item .kp { font-weight: 600; color: #1f3a7a; }
-  .video-tag { display: inline-block; background: #eef2fb; color: #3B6FD4; border-radius: 6px; padding: 2px 8px;
-               font-size: 12px; margin: 2px 4px 2px 0; }
-  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px dashed #ccd; text-align: center;
-            font-size: 12px; color: #99a; }
-  .chart { text-align: center; margin: 10px 0; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #faf3ea; color: #3d342c; }
+  .page { max-width: 820px; margin: 0 auto; background: #fffdf9; padding: 32px 38px 24px; box-shadow: 0 2px 24px rgba(190,145,100,.14); }
+  .header { text-align: center; padding-bottom: 16px; border-bottom: 2px solid #f5d0a8; margin-bottom: 20px; }
+  .header .title { font-size: 23px; font-weight: 800; color: #e07b39; letter-spacing: 4px; }
+  .header .sub { margin-top: 8px; font-size: 13px; color: #a8937f; }
+  .header .meta { margin-top: 12px; font-size: 13px; color: #6b5d50; }
+  .header .meta span { margin: 0 16px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 11px; color: #fff; }
+  .badge-easy { background: #5FB7A2; } .badge-mid { background: #F2B950; }
+  .badge-hard { background: #F08C4A; } .badge-vhard { background: #E07A7A; }
+  h2 { font-size: 15px; color: #b55a24; margin: 20px 0 10px; padding: 6px 12px; border-left: 4px solid #f0a868;
+       background: linear-gradient(90deg,#fdf1e4,transparent); border-radius: 0 8px 8px 0; letter-spacing: 1px; }
+  h3 { font-size: 14px; color: #8a6b4f; margin: 16px 0 8px; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; }
+  .card { flex: 1; min-width: 150px; background: linear-gradient(135deg,#F08C4A,#F7B26A); color: #fff;
+          border-radius: 12px; padding: 14px 16px; box-shadow: 0 3px 10px rgba(240,140,74,.25); }
+  .card .v { font-size: 22px; font-weight: 800; }
+  .card .k { font-size: 12px; opacity: .92; margin-top: 3px; }
+  .card.green { background: linear-gradient(135deg,#5FB7A2,#8AD1BC); box-shadow: 0 3px 10px rgba(95,183,162,.25); }
+  .card.blue { background: linear-gradient(135deg,#7FA8D9,#A9C7E8); box-shadow: 0 3px 10px rgba(127,168,217,.25); }
+  .card.gray { background: linear-gradient(135deg,#b9a898,#d3c4b2); box-shadow: 0 3px 10px rgba(185,168,152,.25); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; border-radius: 8px; overflow: hidden; }
+  th, td { border: 1px solid #f3e4d4; padding: 6px 8px; text-align: center; }
+  th { background: #fbead7; color: #a05622; font-weight: 700; font-size: 12px; }
+  tr:nth-child(even) td { background: #fdf8f1; }
+  .right { color: #4DA58F; font-weight: 700; } .wrong { color: #D96B6B; font-weight: 700; }
+  .note { font-size: 12px; color: #6b5d50; line-height: 1.9; background: #fdf6ec; border-radius: 8px; padding: 12px 16px; }
+  .video-tag { display: inline-block; background: #fbead7; color: #b55a24; border-radius: 6px; padding: 2px 8px;
+               font-size: 11px; margin: 2px 4px 2px 0; }
+  .footer { margin-top: 26px; padding-top: 12px; border-top: 1px dashed #e8d5c0; text-align: center;
+            font-size: 11px; color: #b5a28e; }
+  .chart { text-align: center; margin: 8px 0; }
   .chart img { max-width: 100%; }
-  .encourage { background: linear-gradient(135deg,#fff4e6,#fff9f0); border: 1px solid #ffd8a8; border-radius: 12px;
-               padding: 18px 22px; font-size: 14px; line-height: 2; color: #5c3a12; }
-  .section-head { display: inline-block; background: #3B6FD4; color: #fff; border-radius: 6px; padding: 2px 10px; font-size: 13px; }
+  .encourage { background: linear-gradient(135deg,#fff7ea,#fffdf6); border: 1px solid #f5d8ae; border-radius: 12px;
+               padding: 16px 20px; font-size: 13px; line-height: 2; color: #7a5a38; }
+  .section-head { display: inline-block; background: #F08C4A; color: #fff; border-radius: 6px; padding: 2px 10px; font-size: 12px; }
+  .appendix { font-size: 11px; }
+  .appendix th, .appendix td { padding: 4px 6px; }
+  @media print { body { background: #fff; } .page { box-shadow: none; } }
 </style>
 """
 
@@ -191,19 +194,19 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     </table>
     <div class="note">{advice.get('section_importance', '')}</div>"""
 
-    # 二、错题分析：每个错题一行（题目序号、板块、丢分、考察知识点）
+    # 二、待巩固题目分析：每个错题一行（题目序号、板块、待提升、考察知识点）
     wrong_rows = ""
     for q in analysis["per_question"]:
         if q["lost_score"] <= 0:
             continue
         wrong_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td>"
                        f"<td class='wrong'>{q['lost_score']:.0f}</td>"
-                       f"<td>{q['knowledge_point'] or '未标注'}</td></tr>")
+                       f"<td>{q['knowledge_point'] or '待补充'}</td></tr>")
     part2 = f"""
-    <h2>二、错题分析</h2>
+    <h2>二、待巩固题目分析</h2>
     <table>
-      <tr><th>题目序号</th><th>板块</th><th>丢分</th><th>考察知识点</th></tr>
-      {wrong_rows or '<tr><td colspan="4">本试卷无丢分题目，表现很棒！</td></tr>'}
+      <tr><th>题目序号</th><th>板块</th><th>待提升分</th><th>考察知识点</th></tr>
+      {wrong_rows or '<tr><td colspan="4">本次考试全部题目均已完成得很好，继续保持！</td></tr>'}
     </table>"""
 
     # 三、强化学习计划：表格（强化知识点、针对题型、对应强化学习视频；不显示丢分）
@@ -234,17 +237,17 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     # 附：答题明细（原“五、逐题作答情况”）
     q_rows = ""
     for q in analysis["per_question"]:
-        status = f'<span class="right">正确</span>' if q["correct"] else f'<span class="wrong">错误/丢分</span>'
+        status = f'<span class="right">完成较好</span>' if q["correct"] else f'<span class="wrong">待巩固</span>'
         q_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td><td>{q['qtype']}</td>"
                    f"<td>{q['full_score']:.0f}</td><td>{q['got_score']:.0f}</td><td>{status}</td>"
                    f"<td>{q['student_answer'] or '—'}</td><td>{q['correct_answer'] or '—'}</td>"
-                   f"<td>{q['knowledge_point'] or '未标注'}</td></tr>")
+                   f"<td>{q['knowledge_point'] or '待补充'}</td></tr>")
     extra = f"""
     <h2>附：答题明细</h2>
-    <table>
-      <tr><th>题号</th><th>板块</th><th>题型</th><th>满分</th><th>得分</th><th>正误</th><th>学生答案</th><th>正确答案</th><th>知识点</th></tr>
+    <div class="table-wrap"><table class="appendix">
+      <tr><th>题号</th><th>板块</th><th>题型</th><th>满分</th><th>得分</th><th>作答情况</th><th>学生答案</th><th>正确答案</th><th>知识点</th></tr>
       {q_rows}
-    </table>"""
+    </table></div>"""
 
     footer_date = meta.get("date", "")
     html = f"""<!DOCTYPE html>

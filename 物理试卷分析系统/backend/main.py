@@ -38,6 +38,22 @@ def _valid_rid(rid: str) -> bool:
     return bool(rid) and bool(re.fullmatch(r"[a-f0-9]{12}", rid))
 
 
+@app.on_event("startup")
+def _auto_open_browser():
+    """服务启动后延迟 3 秒自动打开浏览器（绿色版体验；设 PAS_NO_BROWSER=1 可关闭）"""
+    import os
+    import threading
+    import webbrowser
+    if os.environ.get("PAS_NO_BROWSER") == "1":
+        return
+    def _open():
+        try:
+            webbrowser.open("http://127.0.0.1:8787")
+        except Exception:
+            pass
+    threading.Timer(3.0, _open).start()
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")

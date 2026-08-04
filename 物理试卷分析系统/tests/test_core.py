@@ -159,7 +159,7 @@ class TestReportStructure(unittest.TestCase):
                   "study_advice": "建议", "encouragement": "加油"}
         html = build_html(analysis, {"teacher": "张老师", "student": "欧阳娜娜"}, advice, [])
         for marker in ["选择题得分率", "非选择题得分率", "试卷整体难度",
-                       "一、试卷整体分析", "二、错题分析", "三、强化学习计划",
+                       "一、试卷整体分析", "二、待巩固题目分析", "三、强化学习计划",
                        "四、总结", "附：答题明细"]:
             self.assertIn(marker, html)
         self.assertNotIn("📺", html)          # 无 emoji 乱码

@@ -356,7 +356,6 @@ $("#bat-run").addEventListener("click", async () => {
   const payload = {
     file: batFile.file,
     teacher,
-    class_type: $("#bat-class").value,
     mode: $("#bat-mode").value,
     questions: batQuestions.map((q) => ({ ...q, full_score: parseFloat(q.full_score) || 0 })),
   };
@@ -524,8 +523,8 @@ $("#set-clear-key").addEventListener("click", async () => {
   } catch (err) { toast(err.message, true); }
 });
 
-/* 大纲导入 / 恢复 */
-$("#set-outline").addEventListener("change", async (e) => {
+/* 大纲导入 / 恢复（学科配置页） */
+$("#cat-outline").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   e.target.value = "";
   if (!f) return;
@@ -538,16 +537,16 @@ $("#set-outline").addEventListener("change", async (e) => {
     const r = await api("/api/outline/import", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ version: data.version || "import", sections }) });
     await loadOutline();
-    $("#outline-status").textContent = `✅ 已导入 ${r.knowledge_points} 个知识点`;
+    $("#cat-outline-status").textContent = `✅ 已导入 ${r.knowledge_points} 个知识点`;
     toast("大纲导入成功");
   } catch (err) { toast("导入失败: " + err.message, true); }
 });
-$("#outline-reset").addEventListener("click", async () => {
+$("#cat-outline-reset").addEventListener("click", async () => {
   if (!confirm("恢复内置高考物理大纲？自定义内容将被清除。")) return;
   try {
     await api("/api/outline/reset", { method: "POST" });
     await loadOutline();
-    $("#outline-status").textContent = "✅ 已恢复内置大纲";
+    $("#cat-outline-status").textContent = "✅ 已恢复内置大纲";
     toast("已恢复内置大纲");
   } catch (err) { toast(err.message, true); }
 });

@@ -76,11 +76,11 @@ def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, vid
     call = student_call(student)
     user_msg = f"""请基于以下学情数据输出 JSON（严格按此结构）：
 {{
-  "paper_comment": "试卷整体分析（约350字：整体难度与得分率，各板块强弱，选择题/非选择题表现，主要失分点，复习方向）",
+  "paper_comment": "试卷整体分析（约350字，语气委婉鼓励：高分侧重表扬与保持，低分侧重下一步计划与进步空间；分析整体难度、板块强弱、选择题/非选择题表现、主要提升点与复习方向）",
   "section_importance": "各板块在高考中的占比与重要性说明（150字内）",
   "knowledge_supplement": [{{"qid": "题号", "knowledge_point": "规范知识点名称"}}],
-  "study_advice": "后续学习建议（约150字，围绕完成直播课、观看知识视频展开）",
-  "encouragement": "一段真诚的鼓励（约100字，以「{call}」开头，使用学生称呼）"
+  "study_advice": "后续学习建议（约150字，围绕完成直播课、观看知识视频展开，分点给出可执行步骤）",
+  "encouragement": "一段真诚温暖的鼓励（约100字，以「{call}」开头，高分表扬成绩、低分强调计划与进步）"
 }}
 学情数据：
 {context}"""
@@ -102,47 +102,65 @@ def student_call(name: str) -> str:
 
 
 def template_advice(analysis: dict, student: str = "") -> dict:
-    """纯规则模式的模板化建议文案（不依赖网络）"""
+    """纯规则模式的模板化建议文案（不依赖网络）。委婉分层：高分表扬分数，低分强调下一步计划。"""
     sec = analysis["sections"]
     total = analysis["total_got"]
     full = analysis["total_full"]
     rate = analysis["overall_rate"]
     choice_rate = analysis.get("choice_rate", 0)
     non_rate = analysis.get("nonchoice_rate", 0)
+    call = student_call(student)
 
-    # 试卷整体分析（~350字）
+    # ---- 整体分析（~350字，委婉） ----
     pts = []
-    pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，整体得分率{rate:.0%}，难度评定为「{analysis['overall_difficulty']}”。")
+    if rate >= 0.85:
+        pts.append(f"本次试卷满分{full:.0f}分，{call}取得了{total:.0f}分的好成绩，得分率{rate:.0%}，表现相当出色！")
+    elif rate >= 0.6:
+        pts.append(f"本次试卷满分{full:.0f}分，{call}获得{total:.0f}分，得分率{rate:.0%}，整体基础比较扎实。")
+    else:
+        pts.append(f"本次试卷满分{full:.0f}分，{call}获得{total:.0f}分，得分率{rate:.0%}，还有一定的提升空间。")
     if sec:
         weak = [s for s in sec if s["rate"] < 0.6]
         strong = [s for s in sec if s["rate"] >= 0.7]
         if weak:
-            pts.append(f"从板块分布看，{('、'.join(s['name'] for s in weak[:3]))}等板块失分较多，且这些板块在高考中占比可观，是当前复习必须优先补强的短板。")
+            pts.append(f"从板块分布看，{('、'.join(s['name'] for s in weak[:3]))}等板块可以进一步巩固，这些内容在高考中占比较为可观，值得优先投入时间。")
         if strong:
-            pts.append(f"{('、'.join(s['name'] for s in strong[:2]))}等板块掌握较好，说明基础概念与常规题型训练已有成效。")
-    pts.append(f"从题型结构看，选择题得分率{choice_rate:.0%}，非选择题得分率{non_rate:.0%}，非选择题（实验题与计算题）失分相对集中，反映解题步骤规范性、过程书写与综合建模能力仍需加强。")
+            pts.append(f"{('、'.join(s['name'] for s in strong[:2]))}等板块掌握得不错，说明基础知识与常规题型训练已有成效。")
+    pts.append(f"从题型结构看，选择题得分率{choice_rate:.0%}，非选择题得分率{non_rate:.0%}，非选择题（实验题与计算题）方面可以继续加强解题步骤的规范性与综合建模能力。")
     if sec and weak:
         w = weak[0]
         kps = set(q["knowledge_point"] for q in w["loss_questions"] if q.get("knowledge_point"))
         if kps:
-            pts.append(f"丢分最集中的板块是「{w['name']}」，涉及{('、'.join(list(kps)[:3]))}等知识点，建议结合错题逐一回看对应知识视频，再通过同类题巩固。")
-    pts.append("总体来看，基础知识掌握较为扎实，后续复习应以错题为抓手、以视频课为工具，稳步提升综合题得分能力。")
+            pts.append(f"建议围绕{('、'.join(list(kps)[:3]))}等知识点，结合对应知识视频做针对性巩固，再通过同类题检验效果。")
+    pts.append("总体来看，按部就班地完成计划，成绩稳步提升是完全可以期待的。")
     paper_comment = "".join(pts)
 
-    # 鼓励语（~100字，带学生称呼）
-    call = student_call(student)
-    encouragement = (
-        f"{call}，这次拿到了{total:.0f}分，你的努力正在被看见！分数只是阶段性的坐标，"
-        "错题才是成长的阶梯。接下来的复习，建议优先完成直播课，把丢分板块对应的知识视频逐个看一遍，"
-        "再配合同类题巩固。坚持下去，下一次一定会更稳。加油！"
-    )
+    # ---- 鼓励（~100字，分层） ----
+    if rate >= 0.85:
+        encouragement = (
+            f"{call}，这次拿到了{total:.0f}分，非常优秀的成绩！这说明你的努力正在开花结果。"
+            "保持住这份节奏，把个别需要巩固的小知识点再完善一下，向更高的目标稳步前进。"
+            "老师和家长都为你的进步感到高兴，继续加油！"
+        )
+    elif rate >= 0.6:
+        encouragement = (
+            f"{call}，这次获得{total:.0f}分，整体表现不错！分数在稳步提升，基础也越来越扎实。"
+            "接下来按学习计划把需要巩固的知识点逐个落实，配合直播课和知识视频，"
+            "下一次一定能看到更明显的进步。继续加油！"
+        )
+    else:
+        encouragement = (
+            f"{call}，这次获得{total:.0f}分，先别灰心——分数只是现在的坐标，并不代表你的上限。"
+            "按照下面的学习计划，优先完成直播课，把对应知识视频看一遍，再练习同类题，"
+            "进步是可以实实在在实现的。我们一步一步来，一起加油！"
+        )
 
-    # 后续建议（围绕直播课、知识视频）
+    # ---- 后续建议（围绕直播课、知识视频） ----
     study_advice = (
         "后续建议：① 按本报告的强化学习计划，优先完成对应直播课的学习；"
-        "② 每天安排固定时间观看丢分知识点匹配的知识视频，边看边做笔记；"
+        "② 每天安排固定时间观看待巩固知识点匹配的知识视频，边看边做笔记；"
         "③ 每学完一个知识点，完成3~5道同类题检验掌握效果；"
-        "④ 每周复盘一次错题，确保同类题型不再丢分。"
+        "④ 每周复盘一次，确保同类题型不再失分。"
     )
 
     return {

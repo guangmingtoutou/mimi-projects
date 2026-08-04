@@ -73,3 +73,6 @@ td input, td select { width: 100%; min-width: 70px; padding: 6px 8px; font-size:
 .exp-item:hover { background: #f1f4fb; }
 .kp-desc { font-size: 11px; color: #8896a8; margin-top: 2px; line-height: 1.4; min-height: 14px; }
 select { max-width: 100%; }
+
+/* 通用隐藏（修复批量页弹窗默认显示 bug） */
+.hidden { display: none !important; }
