@@ -289,6 +289,53 @@ class TestReportStructure(unittest.TestCase):
         self.assertEqual(section_key_for_kp("不存在的知识点"), "lixue")
         self.assertEqual(section_key_for_kp(""), "lixue")
 
+    def test_suggest_kp_for_video(self):
+        """视频标题自动匹配大纲知识点（可多选，供学科配置预填）"""
+        from backend.knowledge import suggest_kp_for_video
+        kps = suggest_kp_for_video("1.3.2.1超重与失重问题【目标专属】")
+        self.assertIn("超重与失重", kps)
+        kps2 = suggest_kp_for_video("2.4.1.1楞次定律综合问题")
+        self.assertTrue(kps2)  # 至少匹配到一条（楞次定律相关）
+        self.assertEqual(suggest_kp_for_video(""), [])
+        self.assertEqual(suggest_kp_for_video("随便乱写的一行"), [])
+
+    def test_match_videos_binding_first(self):
+        """绑定优先：视频绑定了该知识点时，优先返回绑定视频而非关键词命中"""
+        from unittest import mock
+        from backend.knowledge import match_videos
+        videos = [
+            {"title": "1.1.1.1匀变速直线运动的基础公式", "url": "", "kp": ["牛顿运动定律"]},
+            {"title": "2.4.1.1楞次定律综合问题", "url": "", "kp": ["电磁感应"]},
+            {"title": "1.2.1.1牛顿运动定律精讲", "url": "", "kp": []},  # 标题含关键词但未绑定
+        ]
+        with mock.patch("backend.knowledge.load_catalog", return_value=videos):
+            got = match_videos("牛顿运动定律", "目标班")
+            self.assertEqual(got[0]["title"], "1.1.1.1匀变速直线运动的基础公式")  # 绑定视频优先
+            got2 = match_videos("电磁感应", "目标班")
+            self.assertEqual(got2[0]["title"], "2.4.1.1楞次定律综合问题")
+
+    def test_report_plan_no_duplicate(self):
+        """强化表去重：一个知识点只取主推视频建行，其余折叠为相关视频，错题不重复"""
+        from backend.report_builder import build_html
+        qs = [Question(qid="3", section_key="lixue", qtype="single", full_score=6,
+                       got_score=0, knowledge_point="牛顿运动定律")]
+        analysis = analyze(qs)
+        advice = {"paper_comment": "", "section_importance": "", "study_advice": "", "encouragement": ""}
+        plan = [
+            {"knowledge_point": "牛顿运动定律", "questions": [{"qid": "3"}],
+             "videos": [{"title": "1.2.1.1牛顿运动定律精讲", "url": ""},
+                         {"title": "1.3.2.1超重与失重问题", "url": ""},
+                         {"title": "1.3.2.2斜面动力学问题", "url": ""}]},
+        ]
+        html = build_html(analysis, {"teacher": "张老师", "student": "张三"}, advice, plan, mode="batch")
+        # 主推视频行存在，备选视频折叠，不单独建行
+        self.assertIn("1.2.1.1牛顿运动定律精讲", html)
+        # 备选视频折叠为“＋2 个相关视频”，不单独建行
+        self.assertIn("＋2 个相关视频", html)
+        self.assertIn("超重与失重问题、1.3.2.2斜面动力学问题", html)
+        # 主推视频标签只出现一次（不重复建行）
+        self.assertEqual(html.count("1.2.1.1牛顿运动定律精讲"), 1)
+
     def test_batch_prereq_checks(self):
         """批量生成前检查：老师无学生 / 缺 API / 总分非100 / 视频目录为空"""
         from unittest import mock

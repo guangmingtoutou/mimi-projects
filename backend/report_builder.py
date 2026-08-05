@@ -57,6 +57,7 @@ CSS = """
                font-size: 11px; margin: 2px 4px 2px 0; }
   .video-tag a { color: inherit; text-decoration: none; }
   .video-tag a:hover { text-decoration: underline; }
+  .more-vids { font-size: 11px; color: #7a8aa5; margin-top: 3px; line-height: 1.5; }
   .footer { margin-top: 26px; padding-top: 12px; border-top: 1px dashed #d5deeb; text-align: center;
             font-size: 12px; color: #6b7c96; letter-spacing: 1px; }
   .chart { text-align: center; margin: 8px 0; }
@@ -205,30 +206,34 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     </table>"""
 
     # 三、强化学习：以匹配的视频为核心，按视频归类强化知识点与针对题目（题号）
+    # 每个知识点只取主推视频（第一个）建行，其余折叠为“＋N 个相关视频”，避免错题重复匹配
     video_rows = []
     video_index = {}
     for item in study_plan:
         qids = [str(q["qid"]) for q in item["questions"]]
         vids = item.get("videos") or []
         if vids:
-            for v in vids:
-                key = v["title"]
-                row = video_index.get(key)
-                if row is None:
-                    row = {"title": key, "url": v.get("url", ""), "kps": [], "qids": []}
-                    video_index[key] = row
-                    video_rows.append(row)
-                if item["knowledge_point"] not in row["kps"]:
-                    row["kps"].append(item["knowledge_point"])
-                for qid in qids:
-                    if qid not in row["qids"]:
-                        row["qids"].append(qid)
+            main = vids[0]
+            key = main["title"]
+            row = video_index.get(key)
+            if row is None:
+                row = {"title": key, "url": main.get("url", ""), "kps": [], "qids": [], "more": []}
+                video_index[key] = row
+                video_rows.append(row)
+            if item["knowledge_point"] not in row["kps"]:
+                row["kps"].append(item["knowledge_point"])
+            for qid in qids:
+                if qid not in row["qids"]:
+                    row["qids"].append(qid)
+            for v in vids[1:]:
+                if v["title"] not in row["more"]:
+                    row["more"].append(v["title"])
         else:
             # 目录为空时（仅个人模式可能出现）：集中到一行提示
             key = "__none__"
             row = video_index.get(key)
             if row is None:
-                row = {"title": "", "url": "", "kps": [], "qids": []}
+                row = {"title": "", "url": "", "kps": [], "qids": [], "more": []}
                 video_index[key] = row
                 video_rows.append(row)
             if item["knowledge_point"] not in row["kps"]:
@@ -244,6 +249,11 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
                 if row["url"]:
                     vid_html = (f'<span class="video-tag"><a href="{row["url"]}" '
                                 f'target="_blank">{row["title"]}</a></span>')
+                if row["more"]:
+                    shown = row["more"][:2]
+                    tail = "等" if len(row["more"]) > 2 else ""
+                    vid_html += (f"<div class='more-vids'>＋{len(row['more'])} 个相关视频："
+                                 f"{'、'.join(shown)}{tail}</div>")
             else:
                 vid_html = '<span style="color:#99a5b8;font-size:12px">学科配置中暂无知识视频（导入后自动匹配）</span>'
             plan_rows += (f"<tr><td style='text-align:left'>{vid_html}</td>"

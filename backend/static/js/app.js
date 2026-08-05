@@ -485,17 +485,38 @@ async function loadCatalog() {
 }
 $("#cat-class").addEventListener("change", loadCatalog);
 
+function kpOptionsAll(selected) {
+  const sel = selected || [];
+  return OUTLINE.map((sec) => sec.knowledge_points.map((kp) =>
+    `<option value="${esc(kp.name)}" ${sel.includes(kp.name) ? "selected" : ""}>${esc(kp.name)}</option>`
+  ).join("")).join("");
+}
+window.updCatKp = (i, el) => {
+  catVideos[i].kp = [...el.selectedOptions].map((o) => o.value);
+};
+
 function renderCatalog() {
-  $("#cat-tbl tbody").innerHTML = catVideos.map((v, i) => `
+  const tb = $("#cat-tbl tbody");
+  tb.innerHTML = catVideos.map((v, i) => `
     <tr>
       <td><input value="${esc(v.title)}" oninput="catVideos[${i}].title=this.value"></td>
+      <td><select multiple size="3" class="kp-multi" onchange="updCatKp(${i},this)">${kpOptionsAll(v.kp)}</select></td>
       <td><input value="${esc(v.url)}" placeholder="选填" oninput="catVideos[${i}].url=this.value"></td>
       <td><button class="del-btn" onclick="catVideos.splice(${i},1);renderCatalog()">×</button></td>
-    </tr>`).join("") || `<tr><td colspan="3" style="color:#99a">暂无视频，请上传目录截图 OCR 或手动添加</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="4" style="color:#99a">暂无视频，请上传目录截图 OCR 或手动添加</td></tr>`;
 }
 $("#cat-add").addEventListener("click", () => {
-  catVideos.push({ title: "", url: "" });
+  catVideos.push({ title: "", url: "", kp: [] });
   renderCatalog();
+});
+$("#cat-auto").addEventListener("click", async () => {
+  try {
+    const r = await api("/api/catalog/auto-match", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ class_type: $("#cat-class").value }) });
+    catVideos = r.videos;
+    renderCatalog();
+    toast(`自动匹配完成：${r.matched}/${r.total} 个视频已绑定知识点（请核对后保存）`);
+  } catch (err) { toast(err.message, true); }
 });
 $("#cat-save").addEventListener("click", async () => {
   try {

@@ -17,13 +17,13 @@ from .batch import parse_xlsx, run_batch
 from .config import CATALOG_DIR, REPORT_DIR, STATIC_DIR, TMP_DIR, UPLOAD_DIR, clear_api_key, load_settings, save_settings
 from .db import add_report, get_report, list_reports
 from .exporters import html_to_long_image, html_to_pdf
-from .knowledge import SECTIONS, QUESTION_TYPES, load_catalog, load_outline, reset_outline, save_catalog, save_outline, section_key_for_kp
+from .knowledge import SECTIONS, QUESTION_TYPES, load_catalog, load_outline, reset_outline, save_catalog, save_outline, section_key_for_kp, suggest_kp_for_video
 from .llm import analyze_paper_llm, llm_available, template_advice
 from .ocr import ocr_available, ocr_video_list
 from .paper_parser import extract_text, save_upload, split_questions
 from .report_builder import build_html
 
-app = FastAPI(title="试卷分析系统", version="0.5.1")
+app = FastAPI(title="试卷分析系统", version="0.6.0")
 
 # 批量分析任务进度存储（内存）
 BATCH_JOBS: dict = {}
@@ -186,6 +186,9 @@ async def catalog_ocr(file: UploadFile = File(...), class_type: str = Form("目�
         videos = ocr_video_list(dest)
     except Exception as e:
         raise HTTPException(500, f"OCR 识别失败: {e}")
+    # 自动预填：每个视频按标题匹配大纲知识点（可多个，用户可手动修改）
+    for v in videos:
+        v["kp"] = suggest_kp_for_video(v.get("title", ""))
     # 与已有目录合并（按标题去重）
     existing = load_catalog(class_type)
     seen = {v["title"] for v in existing}
@@ -202,6 +205,21 @@ def catalog_save(payload: dict):
     videos = payload.get("videos", [])
     save_catalog(class_type, videos)
     return {"ok": True, "total": len(videos)}
+
+
+@app.post("/api/catalog/auto-match")
+def catalog_auto_match(payload: dict):
+    """一键自动匹配：按视频标题为目录中所有视频预填/刷新绑定的大纲知识点。"""
+    class_type = payload.get("class_type", "目标班")
+    videos = load_catalog(class_type)
+    matched = 0
+    for v in videos:
+        kps = suggest_kp_for_video(v.get("title", ""))
+        v["kp"] = kps
+        if kps:
+            matched += 1
+    save_catalog(class_type, videos)
+    return {"ok": True, "total": len(videos), "matched": matched, "videos": videos}
 
 
 @app.post("/api/catalog/clear")

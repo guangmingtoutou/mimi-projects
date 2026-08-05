@@ -149,24 +149,25 @@
 <!-- ============ 学科配置 ============ -->
 <section id="tab-catalog" class="panel">
   <h2>学科配置</h2>
-  <h3>知识视频学习目录</h3>
+  <h3>知识视频学习目录 <small>（为每个视频绑定高考大纲知识点：报告强化学习以视频为核心，错题知识点精确对应视频）</small></h3>
   <div class="grid-3">
     <label>班型
       <select id="cat-class"><option>目标班</option><option>菁英班</option></select>
     </label>
-    <label class="full">上传目录截图（自动 OCR 识别视频标题，可编辑）
+    <label class="full">上传目录截图（自动 OCR 识别视频标题并预填知识点，可编辑）
       <input type="file" id="cat-img" accept=".png,.jpg,.jpeg,.webp,.bmp">
     </label>
   </div>
   <div id="cat-ocr-tip" class="note">提示：OCR 组件未安装时只能手动录入视频标题。</div>
   <div class="row-actions">
     <button class="btn ghost" id="cat-add">＋ 手动添加视频</button>
+    <button class="btn primary" id="cat-auto">🤖 自动匹配知识点</button>
     <button class="btn primary" id="cat-save">💾 保存目录</button>
     <button class="btn danger" id="cat-clear">清空</button>
   </div>
   <div class="table-wrap">
     <table id="cat-tbl">
-      <thead><tr><th>视频标题（对应知识点关键词）</th><th>链接（可选）</th><th></th></tr></thead>
+      <thead><tr><th>视频标题（对应知识点关键词）</th><th>对应知识点（Ctrl/⌘ 点击多选）</th><th>链接（可选）</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
