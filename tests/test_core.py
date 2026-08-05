@@ -354,6 +354,38 @@ class TestReportStructure(unittest.TestCase):
             got2 = match_videos("电磁感应", "目标班")
             self.assertEqual(got2[0]["title"], "2.4.1.1楞次定律综合问题")
 
+    def test_common_substr_threshold(self):
+        """公共子串阈值：3 字巧合子串（如“量守恒”）不算相近，4 字才算"""
+        from backend.knowledge import _common_substr
+        self.assertEqual(_common_substr("功能关系与能量守恒", "动量守恒定律"), "")   # 只有“量守恒”3字
+        self.assertEqual(_common_substr("万有引力定律", "万有引力与天体运动"), "万有引力")
+        self.assertEqual(_common_substr("圆周运动", "匀变速直线运动"), "")
+
+    def test_match_videos_no_shared_fallback(self):
+        """不同知识点不再共用同一批兑底视频（截图问题回归）"""
+        from backend.knowledge import load_catalog, match_videos
+        if not load_catalog("菁英班"):
+            self.skipTest("菁英班目录为空")
+        # 截图中的 4 个知识点：都不应再匹配到匀变速系列兑底视频
+        fallback_vids = {"1.1.1.2初速度为零的匀加速直线运动",
+                         "1.1.1.3匀变速直线运动的进阶公式【菁英专属】",
+                         "1.1.2.1运动图像问题"}
+        for kp in ["圆周运动与向心力", "万有引力定律", "功与功率", "功能关系与能量守恒"]:
+            got = {v["title"] for v in match_videos(kp, "菁英班", limit=3)}
+            self.assertFalse(got & fallback_vids, f"{kp} 仍命中兑底视频 {got & fallback_vids}")
+        # 圆周运动与向心力 → 圆周运动系列（绑定包含关系）
+        vids = match_videos("圆周运动与向心力", "菁英班", limit=3)
+        self.assertTrue(any("圆周运动" in v["title"] for v in vids))
+        # 万有引力定律 → 卫星/天体系列（相近知识点）
+        vids = match_videos("万有引力定律", "菁英班", limit=3)
+        self.assertTrue(any("卫星" in v["title"] or "天体" in v["title"] or "重力" in v["title"] for v in vids))
+        # 功与功率 → 功率系列（自动拆词）
+        vids = match_videos("功与功率", "菁英班", limit=3)
+        self.assertTrue(any("功率" in v["title"] for v in vids))
+        # 功能关系与能量守恒 → 能量系列（相近知识点）
+        vids = match_videos("功能关系与能量守恒", "菁英班", limit=3)
+        self.assertTrue(all("1.7." in v["title"] for v in vids))
+
     def test_batch_prereq_checks(self):
         """批量生成前检查：老师无学生 / 缺 API / 总分非100 / 视频目录为空"""
         from unittest import mock
