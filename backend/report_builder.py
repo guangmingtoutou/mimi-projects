@@ -75,6 +75,14 @@ def _b64(img_bytes: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(img_bytes).decode()
 
 
+def _g(x) -> str:
+    """分数精确显示：100.0→100，37.5→37.5（不四舍五入、不出现尾零）"""
+    try:
+        return f"{float(x):g}"
+    except (TypeError, ValueError):
+        return str(x)
+
+
 def _chart_bytes(fig) -> bytes:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=160, bbox_inches="tight", facecolor="white")
@@ -153,9 +161,9 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     # 顶部卡片：总得分 + 选择题得分率 + 非选择题得分率 + 试卷整体难度
     cards = f"""
     <div class="cards">
-      <div class="card"><div class="v">{analysis['total_got']:.0f} / {analysis['total_full']:.0f}</div><div class="k">总得分（满分 {analysis['total_full']:.0f}）</div></div>
-      <div class="card green"><div class="v">{analysis['choice_got']:.0f} / {analysis['choice_full']:.0f}</div><div class="k">选择题得分率 {analysis['choice_rate']:.0%}</div></div>
-      <div class="card blue"><div class="v">{analysis['nonchoice_got']:.0f} / {analysis['nonchoice_full']:.0f}</div><div class="k">非选择题得分率 {analysis['nonchoice_rate']:.0%}</div></div>
+      <div class="card"><div class="v">{_g(analysis['total_got'])} / {_g(analysis['total_full'])}</div><div class="k">总得分（满分 {_g(analysis['total_full'])}）</div></div>
+      <div class="card green"><div class="v">{_g(analysis['choice_got'])} / {_g(analysis['choice_full'])}</div><div class="k">选择题得分率 {analysis['choice_rate']:.0%}</div></div>
+      <div class="card blue"><div class="v">{_g(analysis['nonchoice_got'])} / {_g(analysis['nonchoice_full'])}</div><div class="k">非选择题得分率 {analysis['nonchoice_rate']:.0%}</div></div>
       <div class="card gray"><div class="v">{analysis['overall_difficulty']}</div><div class="k">试卷整体难度</div></div>
     </div>"""
 
@@ -164,8 +172,8 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     for s in analysis["sections"]:
         sec_rows += (f"<tr><td><span class='section-head'>{s['name']}</span></td>"
                      f"<td>{s['gaokao_weight']:.0%}</td><td>{s['importance']}</td>"
-                     f"<td>{s['got_score']:.0f} / {s['full_score']:.0f}</td>"
-                     f"<td>{s['rate']:.0%}</td><td>{s['lost_score']:.0f}</td>"
+                     f"<td>{_g(s['got_score'])} / {_g(s['full_score'])}</td>"
+                     f"<td>{s['rate']:.0%}</td><td>{_g(s['lost_score'])}</td>"
                      f"<td>{difficulty_badge(s['difficulty'])}</td></tr>")
     part1 = f"""
     <h2>一、试卷整体分析</h2>
@@ -187,7 +195,7 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
             desc = ""
         kp_html = f"{kp}" + (f"<div class='kp-desc'>{desc}</div>" if desc else "")
         wrong_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td>"
-                       f"<td class='wrong'>{q['lost_score']:.0f}</td>"
+                       f"<td class='wrong'>{_g(q['lost_score'])}</td>"
                        f"<td style='text-align:left'>{kp_html}</td></tr>")
     part2 = f"""
     <h2>二、待巩固题目</h2>
@@ -261,13 +269,13 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
     for q in analysis["per_question"]:
         status = f'<span class="right">完成较好</span>' if q["correct"] else f'<span class="wrong">待巩固</span>'
         q_rows += (f"<tr><td>{q['qid']}</td><td>{q['section']}</td><td>{q['qtype']}</td>"
-                   f"<td>{q['full_score']:.0f}</td><td>{q['got_score']:.0f}</td><td>{status}</td>"
+                   f"<td>{_g(q['full_score'])}</td><td>{_g(q['got_score'])}</td><td>{status}</td>"
                    f"<td>{q['student_answer'] or '—'}</td><td>{q['correct_answer'] or '—'}</td>"
                    f"<td>{q['knowledge_point'] or '待补充'}</td></tr>")
     extra = f"""
     <h2>附：答题明细</h2>
     <div class="table-wrap"><table class="appendix">
-      <tr><th>题号</th><th>板块</th><th>题型</th><th>满分</th><th>得分</th><th>作答情况</th><th>学生答案</th><th>正确答案</th><th>知识点</th></tr>
+      <tr><th>题号</th><th>板块</th><th>题型</th><th>分值</th><th>得分</th><th>作答情况</th><th>学生答案</th><th>正确答案</th><th>知识点</th></tr>
       {q_rows}
     </table></div>"""
 

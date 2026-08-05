@@ -42,6 +42,16 @@ def reset_outline() -> dict:
     return load_outline()
 
 
+def section_key_for_kp(knowledge_point_name: str) -> str:
+    """根据知识点名反查所属板块 key（找不到默认 lixue）"""
+    name = (knowledge_point_name or "").strip()
+    for sec in SECTIONS:
+        for k in sec["knowledge_points"]:
+            if k["name"] == name:
+                return sec["key"]
+    return "lixue"
+
+
 def knowledge_desc(name: str) -> str:
     """按知识点名查大纲说明（找不到返回空串）"""
     for sec in load_outline().get("sections", []):

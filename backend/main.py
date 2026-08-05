@@ -17,13 +17,13 @@ from .batch import parse_xlsx, run_batch
 from .config import CATALOG_DIR, REPORT_DIR, STATIC_DIR, TMP_DIR, UPLOAD_DIR, clear_api_key, load_settings, save_settings
 from .db import add_report, get_report, list_reports
 from .exporters import html_to_long_image, html_to_pdf
-from .knowledge import SECTIONS, QUESTION_TYPES, load_catalog, load_outline, reset_outline, save_catalog, save_outline
+from .knowledge import SECTIONS, QUESTION_TYPES, load_catalog, load_outline, reset_outline, save_catalog, save_outline, section_key_for_kp
 from .llm import analyze_paper_llm, llm_available, template_advice
 from .ocr import ocr_available, ocr_video_list
 from .paper_parser import extract_text, save_upload, split_questions
 from .report_builder import build_html
 
-app = FastAPI(title="试卷分析系统", version="0.5.0")
+app = FastAPI(title="试卷分析系统", version="0.5.1")
 
 # 批量分析任务进度存储（内存）
 BATCH_JOBS: dict = {}
@@ -297,7 +297,7 @@ def analyze_individual(payload: dict):
     for item in qs:
         q = Question(
             qid=str(item.get("qid", "")),
-            section_key=item.get("section_key", "lixue"),
+            section_key=item.get("section_key") or section_key_for_kp(item.get("knowledge_point") or ""),
             qtype=item.get("qtype", "single"),
             full_score=float(item.get("full_score", 0) or 0),
             got_score=float(item.get("got_score", 0) or 0),
@@ -336,7 +336,7 @@ def analyze_individual(payload: dict):
 # ---------------- 批量试卷分析 ----------------
 def _check_batch_prereqs(parsed: dict, teacher: str, class_type: str, mode: str, paper_config: list) -> list:
     """批量生成前检查：返回错误信息列表（空列表 = 全部通过）。
-    1) 非纯规则模板必须已配置可用 API；2) 各题满分合计必须等于 100；3) 学生涉及的班型知识视频目录不能为空。
+    1) 非纯规则模板必须已配置可用 API；2) 各题分值合计必须等于 100；3) 学生涉及的班型知识视频目录不能为空。
     """
     errors = []
     students = [s for s in parsed["students"] if s["teacher"] == teacher] if teacher else parsed["students"]
@@ -348,7 +348,7 @@ def _check_batch_prereqs(parsed: dict, teacher: str, class_type: str, mode: str,
                       f"请到「设置」页配置 API Key，或将分析模式改为「纯规则模板」。")
     total_full = sum(float(q.get("full_score") or 0) for q in paper_config)
     if abs(total_full - 100) > 0.01:
-        errors.append(f"试卷各题满分合计为 {total_full:g} 分，不是 100 分，请检查题目配置中的「满分」。")
+        errors.append(f"试卷各题分值合计为 {total_full:g} 分，不是 100 分，请检查题目配置中的「分值」。")
     empty_types = sorted({(s.get("class_type") or "").strip() or class_type for s in students
                           if not load_catalog((s.get("class_type") or "").strip() or class_type)})
     if empty_types:

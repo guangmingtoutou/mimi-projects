@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .analyzer import Question, analyze, build_study_plan, grade_question
 from .config import REPORT_DIR
-from .knowledge import load_catalog
+from .knowledge import load_catalog, section_key_for_kp
 from .llm import analyze_paper_llm, llm_available, template_advice
 from .report_builder import build_html
 from .exporters import html_to_long_image, html_to_pdf
@@ -261,7 +261,7 @@ def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: 
             partial_score = cfg.get("partial_score")
             q = Question(
                 qid=qid,
-                section_key=cfg.get("section_key", "lixue"),
+                section_key=cfg.get("section_key") or section_key_for_kp(cfg.get("knowledge_point") or ""),
                 qtype=cfg.get("qtype", "single"),
                 full_score=full,
                 knowledge_point=(cfg.get("knowledge_point") or "").strip(),

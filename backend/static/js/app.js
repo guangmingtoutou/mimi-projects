@@ -154,6 +154,8 @@ function kpDesc(name) {
 }
 window.updQ = (mode, i, field, el) => {
   const arr = mode === "ind" ? indQuestions : batQuestions;
+  // 兼容两种传参：oninput 传 this.value（字符串），onchange 传 this（元素）
+  const val = (el && typeof el === "object" && "value" in el) ? el.value : el;
   if (field === "kp") {
     const opt = el.selectedOptions[0];
     arr[i].knowledge_point = el.value;
@@ -164,9 +166,9 @@ window.updQ = (mode, i, field, el) => {
   } else if (field === "qtype") {
     arr[i].qtype = el.value;
   } else {
-    arr[i][field] = el.value;
+    arr[i][field] = val;
   }
-  if (mode === "ind" && (field === "got_score" || field === "full_score")) renderIndQuestions();
+  // 注意：不再因分值/得分输入而整体重绘表格，避免输入框失焦、连打丢值
 };
 window.delQ = (mode, i) => {
   if (mode === "ind") { indQuestions.splice(i, 1); renderIndQuestions(); }

@@ -81,6 +81,32 @@ class TestGrading(unittest.TestCase):
         self.assertEqual(res["choice_rate"], 0)
         self.assertAlmostEqual(res["nonchoice_rate"], 0.5)
 
+    def test_score_reconciliation(self):
+        """小数分值下 得分+丢分 必须严格等于 总分（100），板块级别同样成立"""
+        qs = [
+            Question(qid="1", section_key="lixue", qtype="single", full_score=12.5,
+                     got_score=2.5, knowledge_point="牛顿运动定律"),
+            Question(qid="2", section_key="lixue", qtype="single", full_score=12.5,
+                     got_score=12.5, knowledge_point="牛顿运动定律"),
+            Question(qid="3", section_key="dianci", qtype="multi", full_score=10.0,
+                     got_score=5.0, knowledge_point="电磁感应"),
+            Question(qid="4", section_key="dianci", qtype="calculation", full_score=65.0,
+                     got_score=17.5, knowledge_point="电磁感应"),
+        ]
+        res = analyze(qs)
+        self.assertEqual(res["total_full"], 100)
+        self.assertEqual(res["total_got"], 37.5)
+        self.assertEqual(res["total_lost"], 62.5)
+        self.assertEqual(round(res["total_got"] + res["total_lost"], 1), res["total_full"])
+        # 板块级：得分 + 丢分 = 板块满分
+        for s in res["sections"]:
+            self.assertEqual(round(s["got_score"] + s["lost_score"], 1), s["full_score"],
+                             f"板块 {s['name']} 得分+丢分≠满分")
+        self.assertEqual(round(sum(s["got_score"] for s in res["sections"]), 1), res["total_got"])
+        # 逐题：丢分 = 分值 - 得分
+        for q in res["per_question"]:
+            self.assertEqual(round(q["got_score"] + q["lost_score"], 1), q["full_score"], f"题 {q['qid']}")
+
 
 class TestSettingsSecurity(unittest.TestCase):
     """settings.json 的 Key 保护逻辑"""
@@ -214,6 +240,29 @@ class TestReportStructure(unittest.TestCase):
         self.assertIn("3、7", html)
         self.assertNotIn("暂无匹配视频", html)
 
+    def test_report_exact_scores(self):
+        """报告分数精确显示（不四舍五入成整数），得分+丢分=100"""
+        from backend.report_builder import build_html
+        qs = [
+            Question(qid="1", section_key="lixue", qtype="single", full_score=12.5,
+                     got_score=2.5, knowledge_point="牛顿运动定律"),
+            Question(qid="2", section_key="lixue", qtype="single", full_score=12.5,
+                     got_score=12.5, knowledge_point="牛顿运动定律"),
+            Question(qid="3", section_key="dianci", qtype="multi", full_score=10.0,
+                     got_score=5.0, knowledge_point="电磁感应"),
+            Question(qid="4", section_key="dianci", qtype="calculation", full_score=65.0,
+                     got_score=17.5, knowledge_point="电磁感应"),
+        ]
+        analysis = analyze(qs)
+        advice = {"paper_comment": "", "section_importance": "", "study_advice": "", "encouragement": ""}
+        html = build_html(analysis, {"teacher": "张老师", "student": "张三"}, advice, [])
+        # 卡片精确显示 37.5 / 100，而不是四舍五入的 38 / 100
+        self.assertIn("37.5 / 100", html)
+        self.assertNotIn("38 / 100", html)
+        # 板块行：丢分精确（力学 15/25 丢 10，电磁 22.5/75 丢 52.5）
+        self.assertIn("15 / 25", html)
+        self.assertIn("52.5", html)
+
     def test_outline_no_placeholder(self):
         """大纲所有知识点说明不能是占位符"""
         from backend.knowledge import knowledge_desc, load_outline
@@ -231,6 +280,14 @@ class TestReportStructure(unittest.TestCase):
             self.skipTest("目标班视频目录为空")
         vids = match_videos("完全不存在的知识点XYZ", "目标班")
         self.assertTrue(vids)
+
+    def test_section_key_for_kp(self):
+        """知识点自动反查板块（前端漏传 section_key 时兜底）"""
+        from backend.knowledge import section_key_for_kp
+        self.assertEqual(section_key_for_kp("牛顿运动定律"), "lixue")
+        self.assertEqual(section_key_for_kp("电磁感应"), "dianci")
+        self.assertEqual(section_key_for_kp("不存在的知识点"), "lixue")
+        self.assertEqual(section_key_for_kp(""), "lixue")
 
     def test_batch_prereq_checks(self):
         """批量生成前检查：老师无学生 / 缺 API / 总分非100 / 视频目录为空"""
