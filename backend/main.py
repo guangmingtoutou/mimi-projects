@@ -23,7 +23,7 @@ from .ocr import ocr_available, ocr_video_list
 from .paper_parser import extract_text, save_upload, split_questions
 from .report_builder import build_html
 
-app = FastAPI(title="试卷分析系统", version="0.6.0")
+app = FastAPI(title="试卷分析系统", version="0.6.1")
 
 # 批量分析任务进度存储（内存）
 BATCH_JOBS: dict = {}

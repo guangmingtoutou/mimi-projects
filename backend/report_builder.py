@@ -57,7 +57,6 @@ CSS = """
                font-size: 11px; margin: 2px 4px 2px 0; }
   .video-tag a { color: inherit; text-decoration: none; }
   .video-tag a:hover { text-decoration: underline; }
-  .more-vids { font-size: 11px; color: #7a8aa5; margin-top: 3px; line-height: 1.5; }
   .footer { margin-top: 26px; padding-top: 12px; border-top: 1px dashed #d5deeb; text-align: center;
             font-size: 12px; color: #6b7c96; letter-spacing: 1px; }
   .chart { text-align: center; margin: 8px 0; }
@@ -205,60 +204,20 @@ def build_html(analysis: dict, meta: dict, advice: dict, study_plan: list, mode:
       {wrong_rows or '<tr><td colspan="4">本次考试全部题目均已完成得很好，继续保持！</td></tr>'}
     </table>"""
 
-    # 三、强化学习：以匹配的视频为核心，按视频归类强化知识点与针对题目（题号）
-    # 每个知识点只取主推视频（第一个）建行，其余折叠为“＋N 个相关视频”，避免错题重复匹配
-    video_rows = []
-    video_index = {}
-    for item in study_plan:
-        qids = [str(q["qid"]) for q in item["questions"]]
-        vids = item.get("videos") or []
-        if vids:
-            main = vids[0]
-            key = main["title"]
-            row = video_index.get(key)
-            if row is None:
-                row = {"title": key, "url": main.get("url", ""), "kps": [], "qids": [], "more": []}
-                video_index[key] = row
-                video_rows.append(row)
-            if item["knowledge_point"] not in row["kps"]:
-                row["kps"].append(item["knowledge_point"])
-            for qid in qids:
-                if qid not in row["qids"]:
-                    row["qids"].append(qid)
-            for v in vids[1:]:
-                if v["title"] not in row["more"]:
-                    row["more"].append(v["title"])
-        else:
-            # 目录为空时（仅个人模式可能出现）：集中到一行提示
-            key = "__none__"
-            row = video_index.get(key)
-            if row is None:
-                row = {"title": "", "url": "", "kps": [], "qids": [], "more": []}
-                video_index[key] = row
-                video_rows.append(row)
-            if item["knowledge_point"] not in row["kps"]:
-                row["kps"].append(item["knowledge_point"])
-            for qid in qids:
-                if qid not in row["qids"]:
-                    row["qids"].append(qid)
+    # 三、强化学习：以知识视频为核心——每知识点一行，匹配视频最多 3 个（绑定优先，同板块补足），错题不重复
     plan_rows = ""
-    if video_rows:
-        for row in video_rows:
-            if row["title"]:
-                vid_html = f'<span class="video-tag">{row["title"]}</span>'
-                if row["url"]:
-                    vid_html = (f'<span class="video-tag"><a href="{row["url"]}" '
-                                f'target="_blank">{row["title"]}</a></span>')
-                if row["more"]:
-                    shown = row["more"][:2]
-                    tail = "等" if len(row["more"]) > 2 else ""
-                    vid_html += (f"<div class='more-vids'>＋{len(row['more'])} 个相关视频："
-                                 f"{'、'.join(shown)}{tail}</div>")
+    if study_plan:
+        for item in study_plan:
+            qids = "、".join(str(q["qid"]) for q in item["questions"])
+            vids = item.get("videos") or []
+            if vids:
+                vid_html = "".join(
+                    f'<span class="video-tag">{v["title"]}</span>' for v in vids)
             else:
-                vid_html = '<span style="color:#99a5b8;font-size:12px">学科配置中暂无知识视频（导入后自动匹配）</span>'
+                vid_html = '<span style="color:#99a5b8;font-size:12px">暂无对应视频（可到学科配置补充）</span>'
             plan_rows += (f"<tr><td style='text-align:left'>{vid_html}</td>"
-                          f"<td style='text-align:left'>{'、'.join(row['kps'])}</td>"
-                          f"<td>{'、'.join(row['qids'])}</td></tr>")
+                          f"<td style='text-align:left'>{item['knowledge_point']}</td>"
+                          f"<td>{qids or '—'}</td></tr>")
     else:
         plan_rows = '<tr><td colspan="3">本次考试没有需要强化的丢分知识点，保持当前节奏即可。</td></tr>'
     part3 = f"""

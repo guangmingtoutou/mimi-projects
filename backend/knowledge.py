@@ -43,18 +43,24 @@ def reset_outline() -> dict:
 
 
 def section_key_for_kp(knowledge_point_name: str) -> str:
-    """根据知识点名反查所属板块 key（找不到默认 lixue）"""
+    """根据知识点名反查所属板块 key（先查大纲全量 87 个细分知识点，再兜底内置 26 个，找不到默认 lixue）"""
     name = (knowledge_point_name or "").strip()
-    for sec in SECTIONS:
-        for k in sec["knowledge_points"]:
-            if k["name"] == name:
-                return sec["key"]
+    if name:
+        for sec in load_outline().get("sections", []):
+            for kp in sec.get("knowledge_points", []):
+                if (kp.get("name") or "").strip() == name:
+                    return sec.get("key", "lixue")
+        for sec in SECTIONS:
+            for k in sec["knowledge_points"]:
+                if k["name"] == name:
+                    return sec["key"]
     return "lixue"
 
 
 def suggest_kp_for_video(title: str, max_kps: int = 3) -> list:
     """根据视频标题自动匹配大纲知识点（可多个），供学科配置预填绑定。
-    匹配依据：① 大纲知识点名直接出现在视频主题中（高分）；② 内置知识点关键词命中。
+    匹配依据：① 大纲知识点名直接出现在视频主题中（+4+名称长度加权，越长越可信）；② 内置知识点关键词命中（+1）。
+    同板块约束：只取得分最高的一个板块内的知识点（一个视频通常只讲一个板块，避免跨板块误绑）。
     """
     topic = video_topic(title or "")
     if not topic:
@@ -66,20 +72,25 @@ def suggest_kp_for_video(title: str, max_kps: int = 3) -> list:
             kw_map.setdefault(k["name"], []).extend(k["keywords"])
     scored = []
     for sec in load_outline().get("sections", []):
+        sec_key = sec.get("key", "")
         for kp in sec.get("knowledge_points", []):
             name = (kp.get("name") or "").strip()
             if not name:
                 continue
             score = 0
             if name in topic:
-                score += 4
+                score += 4 + len(name)
             for kw in kw_map.get(name, []):
                 if kw and kw in topic:
                     score += 1
             if score > 0:
-                scored.append((score, name))
-    scored.sort(key=lambda x: -x[0])
-    return [n for _, n in scored[:max_kps]]
+                scored.append((score, sec_key, name))
+    if not scored:
+        return []
+    # 同板块约束：只保留得分最高的板块内的知识点
+    best_sec = max(scored, key=lambda x: x[0])[1]
+    same_sec = sorted((s for s in scored if s[1] == best_sec), key=lambda x: -x[0])
+    return [n for _, _, n in same_sec[:max_kps]]
 
 
 def knowledge_desc(name: str) -> str:
@@ -269,54 +280,60 @@ def _score_videos(knowledge_point_name: str, videos: list) -> list:
     return scored
 
 
+def _video_sections(v: dict) -> set:
+    """视频所属板块集合：以绑定的大纲知识点为准；未绑定时按标题关键词命中的知识点板块判定。"""
+    secs = set()
+    for kp in (v.get("kp") or []):
+        secs.add(section_key_for_kp(kp))
+    if secs:
+        return secs
+    topic = video_topic(v.get("title", ""))
+    for sec in SECTIONS:
+        for k in sec["knowledge_points"]:
+            if k["name"] and k["name"] in topic:
+                secs.add(sec["key"])
+                break
+            for kw in k["keywords"]:
+                if kw and kw in topic:
+                    secs.add(sec["key"])
+                    break
+    return secs
+
+
 def match_videos(knowledge_point_name: str, class_type: str, limit: int = 3) -> list:
-    """根据知识点匹配知识视频，核心是知识视频（目录绑定优先）。
-    1) 绑定优先：视频目录中绑定了该知识点的视频（学科配置页维护，精确对应）；
-    2) 关键词匹配：知识点名/关键词命中视频标题；
-    3) 兜底：同板块相近知识点视频 → 板块名匹配 → 目录前几个（不标注，保持安静强配）。
+    """根据知识点匹配同板块知识视频（板块强约束，杜绝跨板块错配）。
+    1) 绑定优先：同板块内绑定了该知识点的视频；不足 limit 时用同板块关键词视频补足；
+    2) 同板块关键词匹配；
+    3) 同板块兜底：该板块任意视频（不跨板块）；
+    4) 板块内无视频：全局关键词（罕见）→ 空列表（报告提示暂无对应视频）。
     """
     videos = load_catalog(class_type)
     if not videos:
         return []
     name = (knowledge_point_name or "").strip()
-    # 1) 绑定优先：视频的 kp 字段（数组）包含该知识点
+    sec_key = section_key_for_kp(name)
+    pool = [v for v in videos if sec_key in _video_sections(v)]
+    # 1) 绑定优先（同板块内）
     if name:
-        bound = [v for v in videos if name in (v.get("kp") or [])]
+        bound = [v for v in pool if name in (v.get("kp") or [])]
         if bound:
-            return bound[:limit]
-    # 2) 关键词匹配
-    scored = _score_videos(name, videos)
+            result = list(bound[:limit])
+            if len(result) < limit:  # 绑定不足：同板块关键词补足
+                rest = [v for v in pool if v not in result]
+                for _, v in _score_videos(name, rest):
+                    if len(result) >= limit:
+                        break
+                    result.append(v)
+            return result
+    # 2) 同板块关键词匹配
+    scored = _score_videos(name, pool)
     if scored:
         return [v for _, v in scored[:limit]]
-    # 3) 回退：同板块相近知识点
-    kp = None
-    kp_section = None
-    for sec in SECTIONS:
-        for k in sec["knowledge_points"]:
-            if k["name"] == name:
-                kp, kp_section = k, sec
-                break
-    if kp and kp_section:
-        kp_keywords = set(kp["keywords"])
-        for other in kp_section["knowledge_points"]:
-            if other["name"] == name:
-                continue
-            overlap = kp_keywords & set(other["keywords"])
-            if not overlap and not (kp["name"] in other["name"] or other["name"] in kp["name"]):
-                continue
-            scored2 = _score_videos(other["name"], videos)
-            if scored2:
-                return [v for _, v in scored2[:limit]]
-        # 回退3：同板块内任意知识点对应的视频
-        for other in kp_section["knowledge_points"]:
-            if other["name"] == name:
-                continue
-            scored2 = _score_videos(other["name"], videos)
-            if scored2:
-                return [v for _, v in scored2[:limit]]
-        # 回退4：板块名关键词匹配
-        sec_scored = _score_videos(kp_section["name"], videos)
-        if sec_scored:
-            return [v for _, v in sec_scored[:limit]]
-    # 最终兜底：目录前 limit 个视频
-    return videos[:limit]
+    # 3) 同板块兜底：该板块任意视频
+    if pool:
+        return pool[:limit]
+    # 4) 板块内无视频：全局关键词（罕见）
+    scored_all = _score_videos(name, videos)
+    if scored_all:
+        return [v for _, v in scored_all[:limit]]
+    return []

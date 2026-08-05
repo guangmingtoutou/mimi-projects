@@ -212,7 +212,7 @@ class TestReportStructure(unittest.TestCase):
         self.assertNotIn("· 试卷分析报告", html2)
 
     def test_build_html_video_centric_plan(self):
-        """强化学习表以匹配视频为核心：同一视频归集多个知识点与题号"""
+        """强化学习表：每知识点一行，视频列在前（最多3个），错题不重复"""
         from backend.report_builder import build_html
         qs = [Question(qid="3", section_key="lixue", qtype="single", full_score=6,
                        got_score=0, knowledge_point="牛顿运动定律"),
@@ -224,21 +224,61 @@ class TestReportStructure(unittest.TestCase):
             {"knowledge_point": "牛顿运动定律", "questions": [{"qid": "3"}],
              "videos": [{"title": "1.2.1.1牛顿运动定律精讲", "url": ""}]},
             {"knowledge_point": "动量与动量守恒", "questions": [{"qid": "7"}],
-             "videos": [{"title": "1.2.1.1牛顿运动定律精讲", "url": ""},
-                         {"title": "1.5.2.1动量守恒精讲", "url": ""}]},
+             "videos": [{"title": "1.5.2.1动量守恒精讲", "url": ""}]},
         ]
         html = build_html(analysis, {"teacher": "张老师", "student": "张三"}, advice, plan, mode="batch")
         # 表头
         self.assertIn("匹配视频", html)
         self.assertIn("针对题目（题号）", html)
         self.assertNotIn("针对题型", html)
-        # 视频行：第一个视频归集两个知识点 + 题号 3、7；第二个视频只有动量 + 7
+        # 每个知识点一行，各自视频与题号
         self.assertIn("1.2.1.1牛顿运动定律精讲", html)
         self.assertIn("1.5.2.1动量守恒精讲", html)
-        # 同一视频行内知识点与题号合并展示
-        self.assertIn("牛顿运动定律、动量与动量守恒", html)
-        self.assertIn("3、7", html)
+        self.assertIn("牛顿运动定律", html)
+        self.assertIn("动量与动量守恒", html)
+        self.assertIn(">3<", html)
+        self.assertIn(">7<", html)
         self.assertNotIn("暂无匹配视频", html)
+
+    def test_report_plan_three_videos_per_row(self):
+        """每个知识点最多展示 3 个视频（不再折叠），错题只出现一次"""
+        from backend.report_builder import build_html
+        qs = [Question(qid="3", section_key="lixue", qtype="single", full_score=6,
+                       got_score=0, knowledge_point="牛顿运动定律")]
+        analysis = analyze(qs)
+        advice = {"paper_comment": "", "section_importance": "", "study_advice": "", "encouragement": ""}
+        plan = [
+            {"knowledge_point": "牛顿运动定律", "questions": [{"qid": "3"}],
+             "videos": [{"title": "1.2.1.1牛顿运动定律精讲", "url": ""},
+                         {"title": "1.3.2.1超重与失重问题", "url": ""},
+                         {"title": "1.3.2.2斜面动力学问题", "url": ""}]},
+        ]
+        html = build_html(analysis, {"teacher": "张老师", "student": "张三"}, advice, plan, mode="batch")
+        for t in ["1.2.1.1牛顿运动定律精讲", "1.3.2.1超重与失重问题", "1.3.2.2斜面动力学问题"]:
+            self.assertEqual(html.count(t), 1)  # 每个视频只出现一次
+        self.assertNotIn("＋2 个相关视频", html)
+        self.assertNotIn("more-vids", html)
+
+    def test_match_videos_section_boundary(self):
+        """板块强约束：力学知识点绝不匹配到电磁学视频（含关键词误命中场景）"""
+        from unittest import mock
+        from backend.knowledge import match_videos
+        videos = [
+            {"title": "1.1.1.1匀变速直线运动的基础公式", "url": "", "kp": ["匀变速直线运动"]},
+            {"title": "2.1.1.1库仑定律", "url": "", "kp": ["静电场基本性质"]},
+            {"title": "2.1.5.2带电粒子在电场中的曲线运动", "url": "", "kp": ["静电场基本性质"]},
+        ]
+        with mock.patch("backend.knowledge.load_catalog", return_value=videos):
+            # “曲线运动与平抛”关键词会命中“带电粒子在电场中的曲线运动”，但板块约束下只返回力学视频
+            got = match_videos("曲线运动与平抛", "目标班")
+            self.assertTrue(got)
+            for v in got:
+                self.assertNotIn("带电粒子在电场中的曲线运动", v["title"])
+                self.assertNotIn("库仑定律", v["title"])
+            # 电磁知识点返回电磁视频
+            got2 = match_videos("静电场基本性质", "目标班")
+            self.assertTrue(any("库仑定律" in v["title"] for v in got2))
+            self.assertTrue(all("匀变速直线运动" not in v["title"] for v in got2))
 
     def test_report_exact_scores(self):
         """报告分数精确显示（不四舍五入成整数），得分+丢分=100"""
@@ -313,28 +353,6 @@ class TestReportStructure(unittest.TestCase):
             self.assertEqual(got[0]["title"], "1.1.1.1匀变速直线运动的基础公式")  # 绑定视频优先
             got2 = match_videos("电磁感应", "目标班")
             self.assertEqual(got2[0]["title"], "2.4.1.1楞次定律综合问题")
-
-    def test_report_plan_no_duplicate(self):
-        """强化表去重：一个知识点只取主推视频建行，其余折叠为相关视频，错题不重复"""
-        from backend.report_builder import build_html
-        qs = [Question(qid="3", section_key="lixue", qtype="single", full_score=6,
-                       got_score=0, knowledge_point="牛顿运动定律")]
-        analysis = analyze(qs)
-        advice = {"paper_comment": "", "section_importance": "", "study_advice": "", "encouragement": ""}
-        plan = [
-            {"knowledge_point": "牛顿运动定律", "questions": [{"qid": "3"}],
-             "videos": [{"title": "1.2.1.1牛顿运动定律精讲", "url": ""},
-                         {"title": "1.3.2.1超重与失重问题", "url": ""},
-                         {"title": "1.3.2.2斜面动力学问题", "url": ""}]},
-        ]
-        html = build_html(analysis, {"teacher": "张老师", "student": "张三"}, advice, plan, mode="batch")
-        # 主推视频行存在，备选视频折叠，不单独建行
-        self.assertIn("1.2.1.1牛顿运动定律精讲", html)
-        # 备选视频折叠为“＋2 个相关视频”，不单独建行
-        self.assertIn("＋2 个相关视频", html)
-        self.assertIn("超重与失重问题、1.3.2.2斜面动力学问题", html)
-        # 主推视频标签只出现一次（不重复建行）
-        self.assertEqual(html.count("1.2.1.1牛顿运动定律精讲"), 1)
 
     def test_batch_prereq_checks(self):
         """批量生成前检查：老师无学生 / 缺 API / 总分非100 / 视频目录为空"""
