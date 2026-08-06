@@ -17,13 +17,13 @@ from .batch import parse_xlsx, run_batch
 from .config import CATALOG_DIR, REPORT_DIR, STATIC_DIR, TMP_DIR, UPLOAD_DIR, clear_api_key, load_settings, save_settings
 from .db import add_report, get_report, list_reports
 from .exporters import html_to_long_image, html_to_pdf
-from .knowledge import SECTIONS, QUESTION_TYPES, load_catalog, load_outline, reset_outline, save_catalog, save_outline
+from .knowledge import SECTIONS, QUESTION_TYPES, load_catalog, load_outline, reset_outline, save_catalog, save_outline, section_key_for_kp, suggest_kp_for_video
 from .llm import analyze_paper_llm, llm_available, template_advice
 from .ocr import ocr_available, ocr_video_list
 from .paper_parser import extract_text, save_upload, split_questions
 from .report_builder import build_html
 
-app = FastAPI(title="试卷分析系统", version="0.2.0")
+app = FastAPI(title="试卷分析系统", version="0.6.2")
 
 # 批量分析任务进度存储（内存）
 BATCH_JOBS: dict = {}
@@ -186,6 +186,9 @@ async def catalog_ocr(file: UploadFile = File(...), class_type: str = Form("目�
         videos = ocr_video_list(dest)
     except Exception as e:
         raise HTTPException(500, f"OCR 识别失败: {e}")
+    # 自动预填：每个视频按标题匹配大纲知识点（可多个，用户可手动修改）
+    for v in videos:
+        v["kp"] = suggest_kp_for_video(v.get("title", ""))
     # 与已有目录合并（按标题去重）
     existing = load_catalog(class_type)
     seen = {v["title"] for v in existing}
@@ -202,6 +205,21 @@ def catalog_save(payload: dict):
     videos = payload.get("videos", [])
     save_catalog(class_type, videos)
     return {"ok": True, "total": len(videos)}
+
+
+@app.post("/api/catalog/auto-match")
+def catalog_auto_match(payload: dict):
+    """一键自动匹配：按视频标题为目录中所有视频预填/刷新绑定的大纲知识点。"""
+    class_type = payload.get("class_type", "目标班")
+    videos = load_catalog(class_type)
+    matched = 0
+    for v in videos:
+        kps = suggest_kp_for_video(v.get("title", ""))
+        v["kp"] = kps
+        if kps:
+            matched += 1
+    save_catalog(class_type, videos)
+    return {"ok": True, "total": len(videos), "matched": matched, "videos": videos}
 
 
 @app.post("/api/catalog/clear")
@@ -263,22 +281,24 @@ def suggest_knowledge(payload: dict):
 def _run_analysis(questions: list[Question], meta: dict, mode: str) -> dict:
     class_type = meta.get("class_type", "目标班")
     analysis = analyze(questions)
+    personal = bool(meta.get("personal", False))
     if mode in ("llm", "hybrid") and llm_available():
         try:
             advice = analyze_paper_llm(analysis, questions, class_type, load_catalog(class_type),
-                                       student=meta.get("student", ""))
+                                       student=meta.get("student", ""), personal=personal)
         except Exception as e:
             print(f"[warn] LLM 调用失败，回退模板: {e}")
-            advice = template_advice(analysis, student=meta.get("student", ""))
+            advice = template_advice(analysis, student=meta.get("student", ""), personal=personal)
     else:
-        advice = template_advice(analysis, student=meta.get("student", ""))
+        advice = template_advice(analysis, student=meta.get("student", ""), personal=personal)
     plan = build_study_plan(analysis, class_type)
     return {"analysis": analysis, "advice": advice, "plan": plan}
 
 
 @app.post("/api/analyze/individual")
 def analyze_individual(payload: dict):
-    """payload: {teacher, student, class_type, mode, questions:[{qid,section_key,qtype,full_score,got_score,knowledge_point}]}"""
+    """payload: {teacher, student, class_type, mode, questions:[{qid,section_key,qtype,knowledge_point,wrong}]}
+    个人模式：不输入分值得分，由老师自行标记错题（wrong=True 即错题）"""
     teacher = (payload.get("teacher") or "").strip()
     student = (payload.get("student") or "").strip()
     class_type = (payload.get("class_type") or "目标班").strip()
@@ -295,22 +315,25 @@ def analyze_individual(payload: dict):
         raise HTTPException(400, f"以下题目未选择考察知识点（必填）：{'、'.join(empty_kp)}")
     questions = []
     for item in qs:
+        wrong = bool(item.get("wrong", False))
         q = Question(
             qid=str(item.get("qid", "")),
-            section_key=item.get("section_key", "lixue"),
+            section_key=item.get("section_key") or section_key_for_kp(item.get("knowledge_point") or ""),
             qtype=item.get("qtype", "single"),
-            full_score=float(item.get("full_score", 0) or 0),
-            got_score=float(item.get("got_score", 0) or 0),
+            full_score=1.0,  # 个人模式：每题按 1 计，错题 0 分
+            got_score=0.0 if wrong else 1.0,
             knowledge_point=(item.get("knowledge_point") or "").strip(),
-            student_answer=(item.get("student_answer") or "").strip(),
-            correct_answer=(item.get("correct_answer") or "").strip(),
+            student_answer="",
+            correct_answer="",
+            wrong=wrong,
         )
         questions.append(q)
 
     rid = uuid.uuid4().hex[:12]
     meta = {"report_id": rid, "teacher": teacher, "student": student,
             "class_type": class_type, "school": load_settings().get("school_name", ""),
-            "multi_partial": bool(load_settings().get("multi_choice_partial", False))}
+            "multi_partial": bool(load_settings().get("multi_choice_partial", False)),
+            "personal": True}
     result = _run_analysis(questions, meta, mode)
     analysis = result["analysis"]
     html = build_html(analysis, meta, result["advice"], result["plan"], mode="individual")
@@ -320,7 +343,7 @@ def analyze_individual(payload: dict):
     html_path.write_text(html, encoding="utf-8")
     add_report(rid, "individual", teacher, student, class_type,
                analysis["total_got"], analysis["total_full"],
-               {"mode": mode, "question_count": len(questions)})
+               {"mode": mode, "question_count": len(questions), "personal": True})
     return {
         "report_id": rid,
         "score": analysis["total_got"],
@@ -334,6 +357,29 @@ def analyze_individual(payload: dict):
 
 
 # ---------------- 批量试卷分析 ----------------
+def _check_batch_prereqs(parsed: dict, teacher: str, class_type: str, mode: str, paper_config: list) -> list:
+    """批量生成前检查：返回错误信息列表（空列表 = 全部通过）。
+    1) 非纯规则模板必须已配置可用 API；2) 各题分值合计必须等于 100；3) 学生涉及的班型知识视频目录不能为空。
+    """
+    errors = []
+    students = [s for s in parsed["students"] if s["teacher"] == teacher] if teacher else parsed["students"]
+    if not students:
+        return [f"老师「{teacher}」名下没有学生，请检查答题数据"]
+    if mode in ("llm", "hybrid") and not llm_available():
+        mode_name = "大模型 API" if mode == "llm" else "混合模式"
+        errors.append(f"分析模式为「{mode_name}」，但未配置可用的 API Key。"
+                      f"请到「设置」页配置 API Key，或将分析模式改为「纯规则模板」。")
+    total_full = sum(float(q.get("full_score") or 0) for q in paper_config)
+    if abs(total_full - 100) > 0.01:
+        errors.append(f"试卷各题分值合计为 {total_full:g} 分，不是 100 分，请检查题目配置中的「分值」。")
+    empty_types = sorted({(s.get("class_type") or "").strip() or class_type for s in students
+                          if not load_catalog((s.get("class_type") or "").strip() or class_type)})
+    if empty_types:
+        errors.append(f"班型「{'、'.join(empty_types)}」的知识视频目录为空，报告将无法匹配强化学习视频。"
+                      f"请先到「学科配置」页导入知识视频目录。")
+    return errors
+
+
 @app.post("/api/batch/preview")
 async def batch_preview(file: UploadFile = File(...)):
     ext = Path(file.filename or "").suffix.lower()
@@ -359,7 +405,7 @@ async def batch_preview(file: UploadFile = File(...)):
 
 @app.post("/api/batch/run")
 def batch_run(payload: dict):
-    """启动批量分析任务（异步）。payload: {file, teacher, class_type, mode, questions:[...]}
+    """启动批量分析任务（异步）。payload: {file, teacher, class_type, mode, exam_name, questions:[...]}
     返回 job_id，进度通过 /api/batch/progress/{job_id} 轮询。"""
     fname = payload.get("file", "")
     dest = UPLOAD_DIR / Path(fname).name
@@ -374,17 +420,23 @@ def batch_run(payload: dict):
     mode = payload.get("mode") or load_settings().get("engine_mode", "rule")
     if mode not in ("rule", "llm", "hybrid"):
         mode = "rule"
+    exam_name = (payload.get("exam_name") or "").strip()
     paper_config = payload.get("questions") or []
     if not paper_config:
         raise HTTPException(400, "请先配置试卷题目信息")
     empty_kp = [str(q.get("qid", "?")) for q in paper_config if not (q.get("knowledge_point") or "").strip()]
     if empty_kp:
         raise HTTPException(400, f"以下题目未选择考察知识点（必填）：{'、'.join(empty_kp)}")
+    # —— 批量生成前检查（发现任何问题直接阻止生成）——
+    prereq_errors = _check_batch_prereqs(parsed, teacher, class_type, mode, paper_config)
+    if prereq_errors:
+        raise HTTPException(400, "；".join(prereq_errors))
     rid = uuid.uuid4().hex[:12]
     meta = {"report_id": rid, "teacher": teacher, "class_type": class_type,
+            "exam_name": exam_name,
             "school": load_settings().get("school_name", ""),
             "multi_partial": bool(load_settings().get("multi_choice_partial", False))}
-    job = {"job_id": rid, "status": "running", "total": len([s for s in parsed["students"] if s["teacher"] == teacher]) if teacher else len(parsed["students"]),
+    job = {"job_id": rid, "status": "running", "total": len(students := [s for s in parsed["students"] if s["teacher"] == teacher]) if teacher else len(parsed["students"]),
            "done": 0, "current": "", "error": None, "result": None}
     BATCH_JOBS[rid] = job
 
@@ -400,7 +452,7 @@ def batch_run(payload: dict):
             job["result"] = result
             add_report(rid, "batch", teacher, f"{result['count']}名学生", class_type,
                        sum(r["score"] for r in result["results"]), 0,
-                       {"zip": result["zip_path"], "mode": mode})
+                       {"zip": result["zip_path"], "mode": mode, "exam_name": exam_name})
         except Exception as e:
             job["status"] = "error"
             job["error"] = str(e)
@@ -424,7 +476,7 @@ def batch_progress(job_id: str):
 
 @app.post("/api/batch/export")
 def batch_export(payload: dict):
-    """按需导出：选择学生 + 格式（pdf/长图/两者）。payload: {rid, names:[...], format:"pdf"|"image"|"both"}"""
+    """按需导出：选择学生 + 格式（pdf/图片/两者）。payload: {rid, names:[...], format:"pdf"|"image"|"both"}"""
     rid = str(payload.get("rid", ""))
     if not _valid_rid(rid):
         raise HTTPException(400, "无效的报告 ID")
@@ -441,7 +493,8 @@ def batch_export(payload: dict):
         if f.suffix.lower() == ".pdf" and fmt in ("pdf", "both"):
             files.setdefault(f.stem, {})["pdf"] = f
         elif f.suffix.lower() in (".png", ".jpg") and fmt in ("image", "both"):
-            files.setdefault(f.stem, {})["image"] = f
+            if not f.name.endswith(".tall.png"):  # 过滤长图中间文件
+                files.setdefault(f.stem, {})["image"] = f
     if names:
         name_set = {str(n).strip() for n in names if str(n).strip()}
         files = {k: v for k, v in files.items() if k in name_set or any(k.startswith(str(n)) for n in name_set)}

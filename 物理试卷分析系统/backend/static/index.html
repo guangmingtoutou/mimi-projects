@@ -43,15 +43,14 @@
   </div>
   <div id="ind-files" class="file-list"></div>
   <div class="row-actions">
-    <button class="btn ghost" id="ind-extract">📄 从试卷提取题目（PDF/Word）</button>
-    <button class="btn ghost" id="ind-suggest">✨ 智能标注知识点</button>
+    <button class="btn ghost" id="ind-suggest">✨ 智能标注知识点（按题号匹配试卷文本）</button>
     <button class="btn ghost" id="ind-add-q">＋ 手动添加题目</button>
   </div>
-  <h3>题目与得分配置 <small>（知识点必选，选中后自动带出板块；得分&lt;满分即标记错题）</small></h3>
+  <h3>题目配置 <small>（知识点必选，选中后自动带出板块；勾选「错题」标记做错的题目）</small></h3>
   <div class="table-wrap">
     <table id="ind-qtbl">
       <thead><tr>
-        <th>题号</th><th>题型</th><th>考察知识点（必选）</th><th>满分</th><th>得分</th><th></th>
+        <th>题号</th><th>题型</th><th>考察知识点（必选）</th><th>错题</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -75,11 +74,12 @@
 <section id="tab-batch" class="panel">
   <h2>批量试卷分析</h2>
   <div class="grid-3">
-    <label>答题数据（xlsx）<input type="file" id="bat-xlsx" accept=".xlsx,.xls"></label>
     <label>试卷文件（PDF/Word）<input type="file" id="bat-paper" accept=".pdf,.docx,.doc,.txt"></label>
-    <label class="full">班型：自动从答题数据匹配（无班型字段默认目标班）</label>
+    <label>答题数据（xlsx）<input type="file" id="bat-xlsx" accept=".xlsx,.xls"></label>
+    <label class="full">班型：自动从答题数据匹配（无班型字段默认目标班）<span id="bat-info" class="note">未上传答题表</span></label>
   </div>
   <div class="grid-3">
+    <label>考试名称 <input id="bat-exam" placeholder="如：高一期中考试（留空则报告不显示）"></label>
     <label>授课老师 <select id="bat-teacher"><option value="">-- 上传答题表后选择 --</option></select></label>
     <label>分析模式
       <select id="bat-mode">
@@ -88,18 +88,17 @@
         <option value="hybrid">混合模式（推荐）</option>
       </select>
     </label>
-    <label class="full" id="bat-info">未上传答题表</label>
   </div>
   <div class="row-actions">
-    <button class="btn ghost" id="bat-extract">📄 从试卷提取题目</button>
-    <button class="btn ghost" id="bat-suggest">✨ 智能标注知识点</button>
-    <button class="btn ghost" id="bat-add-q">＋ 手动添加题目</button>
+    <button class="btn primary" id="bat-extract">📄 从试卷提取题目</button>
+    <button class="btn primary" id="bat-suggest">✨ 智能标注知识点</button>
+    <button class="btn primary" id="bat-add-q">＋ 手动添加题目</button>
   </div>
   <h3>试卷题目配置 <small>（知识点必选；分值按试卷设定，学生得分自动判定）</small></h3>
   <div class="table-wrap">
     <table id="bat-qtbl">
       <thead><tr>
-        <th>题号</th><th>题型</th><th>考察知识点（必选）</th><th>满分</th><th></th>
+        <th>题号</th><th>题型</th><th>考察知识点（必选）</th><th>分值</th><th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -119,7 +118,7 @@
       <button class="btn danger" id="bat-cleanup">🗑 清除缓存</button>
     </div>
     <div class="table-wrap"><table id="bat-list">
-      <thead><tr><th>排名</th><th>学生</th><th>班型</th><th>总分</th><th>得分率</th><th>PDF</th><th>长图</th></tr></thead><tbody></tbody>
+      <thead><tr><th>排名</th><th>学生</th><th>班型</th><th>总分</th><th>得分率</th><th>PDF</th><th>图片</th></tr></thead><tbody></tbody>
     </table></div>
   </div>
   <!-- 导出对话框 -->
@@ -130,8 +129,8 @@
         <label>导出格式
           <select id="exp-format">
             <option value="pdf">PDF</option>
-            <option value="image">长图（图片）</option>
-            <option value="both">两者都要</option>
+            <option value="image">图片</option>
+            <option value="both">PDF + 图片</option>
           </select>
         </label>
         <label class="full"><input type="checkbox" id="exp-all" checked> 全选 / 全不选</label>
@@ -149,24 +148,25 @@
 <!-- ============ 学科配置 ============ -->
 <section id="tab-catalog" class="panel">
   <h2>学科配置</h2>
-  <h3>知识视频学习目录</h3>
+  <h3>知识视频学习目录 <small>（为每个视频绑定高考大纲知识点：报告强化学习以视频为核心，错题知识点精确对应视频）</small></h3>
   <div class="grid-3">
     <label>班型
       <select id="cat-class"><option>目标班</option><option>菁英班</option></select>
     </label>
-    <label class="full">上传目录截图（自动 OCR 识别视频标题，可编辑）
+    <label class="full">上传目录截图（自动 OCR 识别视频标题并预填知识点，可编辑）
       <input type="file" id="cat-img" accept=".png,.jpg,.jpeg,.webp,.bmp">
     </label>
   </div>
   <div id="cat-ocr-tip" class="note">提示：OCR 组件未安装时只能手动录入视频标题。</div>
   <div class="row-actions">
     <button class="btn ghost" id="cat-add">＋ 手动添加视频</button>
+    <button class="btn primary" id="cat-auto">🤖 自动匹配知识点</button>
     <button class="btn primary" id="cat-save">💾 保存目录</button>
     <button class="btn danger" id="cat-clear">清空</button>
   </div>
   <div class="table-wrap">
     <table id="cat-tbl">
-      <thead><tr><th>视频标题（对应知识点关键词）</th><th>链接（可选）</th><th></th></tr></thead>
+      <thead><tr><th>视频标题（对应知识点关键词）</th><th>对应知识点（Ctrl/⌘ 点击多选）</th><th>链接（可选）</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>

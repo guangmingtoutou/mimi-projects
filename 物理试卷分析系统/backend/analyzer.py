@@ -19,6 +19,7 @@ class Question:
     correct_answer: str = ""    # 正确答案
     got_score: float = 0.0      # 得分
     partial_score: Optional[float] = None  # 多选题“选对但不全”的固定得分
+    wrong: bool = False         # 个人模式：老师标记的错题（不用分数）
 
 
 _CHOICE_RE = re.compile(r"[A-Da-d]")
@@ -97,9 +98,11 @@ def difficulty_label(rate: float) -> str:
 
 
 def analyze(questions: list[Question]) -> dict:
-    """对一组成绩数据做规则统计，返回结构化分析结果"""
-    total_full = sum(q.full_score for q in questions) or 1
-    total_got = sum(q.got_score for q in questions)
+    """对一组成绩数据做规则统计，返回结构化分析结果
+    所有分数合计统一保留 1 位小数，保证「得分 + 丢分 = 总分」严格成立。
+    """
+    total_full = round(sum(q.full_score for q in questions), 1) or 1
+    total_got = round(sum(q.got_score for q in questions), 1)
     overall_rate = total_got / total_full
     overall_difficulty = difficulty_label(overall_rate)
 
@@ -113,9 +116,9 @@ def analyze(questions: list[Question]) -> dict:
             "section_key": q.section_key,
             "qtype": TYPE_INDEX.get(q.qtype, {}).get("name", q.qtype),
             "qtype_key": q.qtype,
-            "full_score": q.full_score,
-            "got_score": q.got_score,
-            "lost_score": round(q.full_score - q.got_score, 1),
+            "full_score": round(q.full_score, 1),
+            "got_score": round(q.got_score, 1),
+            "lost_score": round(round(q.full_score, 1) - round(q.got_score, 1), 1),
             "rate": round(rate, 3),
             "difficulty": difficulty_label(rate),
             "knowledge_point": q.knowledge_point,
@@ -130,18 +133,18 @@ def analyze(questions: list[Question]) -> dict:
         qs = [q for q in questions if q.section_key == sec["key"]]
         if not qs:
             continue
-        full = sum(q.full_score for q in qs)
-        got = sum(q.got_score for q in qs)
-        lost = full - got
+        full = round(sum(q.full_score for q in qs), 1)
+        got = round(sum(q.got_score for q in qs), 1)
+        lost = round(full - got, 1)
         rate = got / full if full else 0
         sections.append({
             "key": sec["key"],
             "name": sec["name"],
             "gaokao_weight": sec["gaokao_weight"],
             "importance": sec["importance"],
-            "full_score": round(full, 1),
-            "got_score": round(got, 1),
-            "lost_score": round(lost, 1),
+            "full_score": full,
+            "got_score": got,
+            "lost_score": lost,
             "rate": round(rate, 3),
             "difficulty": difficulty_label(rate),
             "questions": [q for q in per_question if q["section_key"] == sec["key"]],
@@ -154,13 +157,13 @@ def analyze(questions: list[Question]) -> dict:
         qs = [q for q in questions if q.qtype == t["key"]]
         if not qs:
             continue
-        full = sum(q.full_score for q in qs)
-        got = sum(q.got_score for q in qs)
+        full = round(sum(q.full_score for q in qs), 1)
+        got = round(sum(q.got_score for q in qs), 1)
         qtypes.append({
             "key": t["key"],
             "name": t["name"],
-            "full_score": round(full, 1),
-            "got_score": round(got, 1),
+            "full_score": full,
+            "got_score": got,
             "lost_score": round(full - got, 1),
             "rate": round(got / full, 3) if full else 0,
         })
@@ -169,10 +172,10 @@ def analyze(questions: list[Question]) -> dict:
     choice_keys = {"single", "multi"}
     choice_qs = [q for q in questions if q.qtype in choice_keys]
     nonchoice_qs = [q for q in questions if q.qtype not in choice_keys]
-    choice_full = sum(q.full_score for q in choice_qs)
-    choice_got = sum(q.got_score for q in choice_qs)
-    non_full = sum(q.full_score for q in nonchoice_qs)
-    non_got = sum(q.got_score for q in nonchoice_qs)
+    choice_full = round(sum(q.full_score for q in choice_qs), 1)
+    choice_got = round(sum(q.got_score for q in choice_qs), 1)
+    non_full = round(sum(q.full_score for q in nonchoice_qs), 1)
+    non_got = round(sum(q.got_score for q in nonchoice_qs), 1)
     choice_rate = round(choice_got / choice_full, 3) if choice_full else 0
     non_rate = round(non_got / non_full, 3) if non_full else 0
 
@@ -196,8 +199,8 @@ def analyze(questions: list[Question]) -> dict:
 
     # 强化学习计划：丢分知识点 → 知识视频（由上层传入 class_type 填充）
     return {
-        "total_full": round(total_full, 1),
-        "total_got": round(total_got, 1),
+        "total_full": total_full,
+        "total_got": total_got,
         "total_lost": round(total_full - total_got, 1),
         "overall_rate": round(overall_rate, 3),
         "overall_difficulty": overall_difficulty,

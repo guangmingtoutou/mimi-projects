@@ -139,8 +139,7 @@ function renderIndQuestions() {
         <select data-i="${i}" onchange="updQ('ind',${i},'kp',this)">${kpOptions(q.knowledge_point)}</select>
         <div class="kp-desc" id="ind-kp-desc-${i}">${esc(kpDesc(q.knowledge_point))}</div>
       </td>
-      <td><input type="number" step="0.5" min="0" value="${q.full_score}" oninput="updQ('ind',${i},'full_score',this.value)"></td>
-      <td><input type="number" step="0.5" min="0" value="${q.got_score}" oninput="updQ('ind',${i},'got_score',this.value)"></td>
+      <td><input type="checkbox" ${q.wrong ? "checked" : ""} onchange="updQ('ind',${i},'wrong',this)"></td>
       <td><button class="del-btn" onclick="delQ('ind',${i})">✕</button></td>
     </tr>`).join("");
 }
@@ -154,6 +153,8 @@ function kpDesc(name) {
 }
 window.updQ = (mode, i, field, el) => {
   const arr = mode === "ind" ? indQuestions : batQuestions;
+  // 兼容两种传参：oninput 传 this.value（字符串），onchange 传 this（元素）
+  const val = (el && typeof el === "object" && "value" in el) ? el.value : el;
   if (field === "kp") {
     const opt = el.selectedOptions[0];
     arr[i].knowledge_point = el.value;
@@ -161,12 +162,14 @@ window.updQ = (mode, i, field, el) => {
     const descEl = document.getElementById(`${mode}-kp-desc-${i}`);
     if (descEl) descEl.textContent = (opt && opt.dataset.desc) || "";
     if (mode === "bat") renderBatQuestions(); else renderIndQuestions();
+  } else if (field === "wrong") {
+    arr[i].wrong = !!el.checked;
   } else if (field === "qtype") {
     arr[i].qtype = el.value;
   } else {
-    arr[i][field] = el.value;
+    arr[i][field] = val;
   }
-  if (mode === "ind" && (field === "got_score" || field === "full_score")) renderIndQuestions();
+  // 注意：不再因分值/得分输入而整体重绘表格，避免输入框失焦、连打丢值
 };
 window.delQ = (mode, i) => {
   if (mode === "ind") { indQuestions.splice(i, 1); renderIndQuestions(); }
@@ -174,28 +177,11 @@ window.delQ = (mode, i) => {
 };
 
 $("#ind-add-q").addEventListener("click", () => {
-  indQuestions.push({ qid: String(indQuestions.length + 1), qtype: "single", section_key: "lixue", full_score: 4, got_score: 0, knowledge_point: "" });
+  indQuestions.push({ qid: String(indQuestions.length + 1), qtype: "single", section_key: "lixue", wrong: false, knowledge_point: "" });
   renderIndQuestions();
 });
 
-$("#ind-extract").addEventListener("click", async () => {
-  const pdf = indFiles.find((f) => f.ext === ".pdf" || f.ext === ".docx" || f.ext === ".doc" || f.ext === ".txt");
-  if (!pdf) return toast("请先上传 PDF/Word 试卷文件", true);
-  try {
-    const fd = new FormData();
-    fd.append("file", await (await fetch(pdf.url)).blob(), pdf.original);
-    const r = await api("/api/paper/text", { method: "POST", body: fd });
-    if (!r.questions.length) return toast("未能从试卷中识别出题目，请手动添加", true);
-    indPaperQuestions = r.questions;
-    indQuestions = r.questions.map((q) => ({
-      qid: q.qid, qtype: "single", section_key: "lixue",
-      full_score: q.score ?? 4, got_score: q.score ?? 0, knowledge_point: "",
-    }));
-    toast(`已提取 ${indQuestions.length} 道题，自动匹配知识点中…`);
-    renderIndQuestions();
-    await suggestKnowledge("ind");   // 自动匹配题型/板块/知识点
-  } catch (err) { toast("提取失败: " + err.message, true); }
-});
+// 手动添加题目后，用「智能标注知识点」按题号匹配试卷文本提取考察知识点（不再自动提取题目）
 
 $("#ind-run").addEventListener("click", async () => {
   const payload = {
@@ -203,7 +189,13 @@ $("#ind-run").addEventListener("click", async () => {
     student: $("#ind-student").value.trim(),
     class_type: $("#ind-class").value,
     mode: $("#ind-mode").value,
-    questions: indQuestions.map((q) => ({ ...q, full_score: parseFloat(q.full_score) || 0, got_score: parseFloat(q.got_score) || 0 })),
+    questions: indQuestions.map((q) => ({
+      qid: q.qid,
+      qtype: q.qtype,
+      section_key: q.section_key,
+      knowledge_point: q.knowledge_point,
+      wrong: !!q.wrong,
+    })),
   };
   if (!payload.student) return toast("请填写学生姓名", true);
   if (!payload.questions.length) return toast("请至少配置一道题", true);
@@ -212,10 +204,12 @@ $("#ind-run").addEventListener("click", async () => {
   try {
     const r = await api("/api/analyze/individual", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     lastResult = r;
+    const wrongN = r.full - r.score;
     $("#ind-score").innerHTML = `
-      <div class="score-card"><div class="v">${r.score} / ${r.full}</div><div class="k">总得分</div></div>
-      <div class="score-card"><div class="v">${(r.rate * 100).toFixed(0)}%</div><div class="k">得分率</div></div>
-      <div class="score-card"><div class="v">${esc(r.difficulty)}</div><div class="k">整体难度</div></div>`;
+      <div class="score-card"><div class="v">${r.full} 题</div><div class="k">试卷题量</div></div>
+      <div class="score-card"><div class="v">${r.score} 题</div><div class="k">做对</div></div>
+      <div class="score-card"><div class="v">${wrongN} 题</div><div class="k">做错</div></div>
+      <div class="score-card"><div class="v">${(r.rate * 100).toFixed(0)}%</div><div class="k">正确率</div></div>`;
     $("#ind-preview").src = r.html_url;
     $("#ind-result").classList.remove("hidden");
     toast("报告生成成功");
@@ -225,17 +219,39 @@ $("#ind-pdf").addEventListener("click", () => window.open(lastResult.pdf_url));
 $("#ind-img").addEventListener("click", () => window.open(lastResult.image_url));
 $("#ind-open").addEventListener("click", () => window.open(lastResult.html_url));
 
-/* 智能标注知识点：优先大模型 API（后端自动判断），本地规则兜底。
-   分批调用展示进度（已分析 X/N 题），5 分钟无结果提示超时。 */
+// 智能标注知识点：优先大模型 API（后端自动判断），本地规则兜底。
+// 若尚未解析试卷文本，自动先解析 PDF/Word（只取文本，不生成题目行）。
+async function ensureIndPaperText() {
+  if (indPaperQuestions.length) return;
+  const doc = indFiles.find((f) => f.ext === ".pdf" || f.ext === ".docx" || f.ext === ".doc" || f.ext === ".txt");
+  if (!doc) return;
+  try {
+    const fd = new FormData();
+    fd.append("file", await (await fetch(doc.url)).blob(), doc.original);
+    const r = await api("/api/paper/text", { method: "POST", body: fd });
+    indPaperQuestions = r.questions || [];
+  } catch (err) { /* 解析失败不阻塞，按题号匹配不到的题会跳过 */ }
+}
+
 async function suggestKnowledge(mode) {
   const arr = mode === "ind" ? indQuestions : batQuestions;
   const paperQs = mode === "ind" ? indPaperQuestions : batPaperQuestions;
-  if (!paperQs.length) return toast("请先上传试卷并点击「从试卷提取题目」", true);
+  if (mode === "ind") await ensureIndPaperText();
   const textByQid = {};
   for (const pq of paperQs) textByQid[String(pq.qid)] = pq.text || "";
   const targets = arr.filter((q) => !q.knowledge_point);   // 只标注未选的
+  if (!targets.length) return toast("所有题目都已标注知识点", false);
+  if (!paperQs.length) {
+    // 没有试卷文本：按题号无法匹配，提示老师上传 PDF/Word 或手动选择
+    toast("未解析到试卷文本，请上传 PDF/Word 后重试，或手动选择知识点", true);
+    return;
+  }
   const items = targets.map((q) => ({ qid: q.qid, text: textByQid[String(q.qid)] || "" }));
-  if (!items.length) return toast("所有题目都已标注知识点", false);
+  const noText = items.filter((i) => !i.text).length;
+  if (noText && noText === items.length) {
+    toast("题号与试卷文本匹配不上，请核对题号或手动选择知识点", true);
+    return;
+  }
 
   const BATCH = 5, TIMEOUT_MS = 300000;  // 每批 5 题，总超时 5 分钟
   const controller = new AbortController();
@@ -379,6 +395,7 @@ $("#bat-run").addEventListener("click", async () => {
     file: batFile.file,
     teacher,
     mode: $("#bat-mode").value,
+    exam_name: $("#bat-exam").value.trim(),
     questions: batQuestions.map((q) => ({ ...q, full_score: parseFloat(q.full_score) || 0 })),
   };
   try {
@@ -427,7 +444,7 @@ function showBatchResult(result) {
       <td>${s.image ? "✅" : "—"}</td>
     </tr>`).join("");
   $("#bat-result").classList.remove("hidden");
-  toast(`已为 ${result.count} 名学生生成报告（PDF + 长图）`);
+  toast(`已为 ${result.count} 名学生生成报告（PDF + 图片）`);
 }
 
 /* ---- 导出对话框 ---- */
@@ -482,17 +499,38 @@ async function loadCatalog() {
 }
 $("#cat-class").addEventListener("change", loadCatalog);
 
+function kpOptionsAll(selected) {
+  const sel = selected || [];
+  return OUTLINE.map((sec) => sec.knowledge_points.map((kp) =>
+    `<option value="${esc(kp.name)}" ${sel.includes(kp.name) ? "selected" : ""}>${esc(kp.name)}</option>`
+  ).join("")).join("");
+}
+window.updCatKp = (i, el) => {
+  catVideos[i].kp = [...el.selectedOptions].map((o) => o.value);
+};
+
 function renderCatalog() {
-  $("#cat-tbl tbody").innerHTML = catVideos.map((v, i) => `
+  const tb = $("#cat-tbl tbody");
+  tb.innerHTML = catVideos.map((v, i) => `
     <tr>
       <td><input value="${esc(v.title)}" oninput="catVideos[${i}].title=this.value"></td>
+      <td><select multiple size="3" class="kp-multi" onchange="updCatKp(${i},this)">${kpOptionsAll(v.kp)}</select></td>
       <td><input value="${esc(v.url)}" placeholder="选填" oninput="catVideos[${i}].url=this.value"></td>
       <td><button class="del-btn" onclick="catVideos.splice(${i},1);renderCatalog()">×</button></td>
-    </tr>`).join("") || `<tr><td colspan="3" style="color:#99a">暂无视频，请上传目录截图 OCR 或手动添加</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="4" style="color:#99a">暂无视频，请上传目录截图 OCR 或手动添加</td></tr>`;
 }
 $("#cat-add").addEventListener("click", () => {
-  catVideos.push({ title: "", url: "" });
+  catVideos.push({ title: "", url: "", kp: [] });
   renderCatalog();
+});
+$("#cat-auto").addEventListener("click", async () => {
+  try {
+    const r = await api("/api/catalog/auto-match", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ class_type: $("#cat-class").value }) });
+    catVideos = r.videos;
+    renderCatalog();
+    toast(`自动匹配完成：${r.matched}/${r.total} 个视频已绑定知识点（请核对后保存）`);
+  } catch (err) { toast(err.message, true); }
 });
 $("#cat-save").addEventListener("click", async () => {
   try {

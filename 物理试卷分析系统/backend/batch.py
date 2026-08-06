@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .analyzer import Question, analyze, build_study_plan, grade_question
 from .config import REPORT_DIR
-from .knowledge import load_catalog
+from .knowledge import load_catalog, section_key_for_kp
 from .llm import analyze_paper_llm, llm_available, template_advice
 from .report_builder import build_html
 from .exporters import html_to_long_image, html_to_pdf
@@ -228,7 +228,7 @@ def _merge_paper_config(paper_config: list, question_meta: list) -> list:
 
 def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: str = "hybrid",
               progress_cb: callable = None) -> dict:
-    """为指定老师名下的所有学生逐个生成报告（HTML + PDF + 长图），返回 zip 路径与统计信息。
+    """为指定老师名下的所有学生逐个生成报告（HTML + PDF + 图片），返回 zip 路径与统计信息。
     progress_cb(done, total, current) 可选，用于前端展示进度。
     """
     students = [s for s in parsed["students"] if s["teacher"] == teacher] if teacher else parsed["students"]
@@ -261,7 +261,7 @@ def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: 
             partial_score = cfg.get("partial_score")
             q = Question(
                 qid=qid,
-                section_key=cfg.get("section_key", "lixue"),
+                section_key=cfg.get("section_key") or section_key_for_kp(cfg.get("knowledge_point") or ""),
                 qtype=cfg.get("qtype", "single"),
                 full_score=full,
                 knowledge_point=(cfg.get("knowledge_point") or "").strip(),
@@ -334,7 +334,7 @@ def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: 
             html_to_long_image(item["html_path"], img_path)
             out["image"] = img_path.name
         except Exception as e:
-            print(f"[warn] {item['name']} 长图导出失败: {e}")
+            print(f"[warn] {item['name']} 图片导出失败: {e}")
         return {**item, **out}
 
     results = []
@@ -350,7 +350,7 @@ def run_batch(parsed: dict, teacher: str, paper_config: list, meta: dict, mode: 
 
     zip_path = REPORT_DIR / f"batch_{meta.get('report_id', 'tmp')}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(zip_dir.glob("*.pdf")) + sorted(zip_dir.glob("*.png")) + sorted(zip_dir.glob("*.html")):
+        for f in sorted(zip_dir.glob("*.pdf")) + sorted(p for p in zip_dir.glob("*.png") if not p.name.endswith(".tall.png")) + sorted(zip_dir.glob("*.html")):
             zf.write(f, f.name)
     results.sort(key=lambda r: -r["score"])
     return {"zip_path": str(zip_path), "results": results, "count": len(results)}

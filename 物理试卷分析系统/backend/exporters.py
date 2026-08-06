@@ -55,11 +55,15 @@ def html_to_pdf(html_path: Path, pdf_path: Path) -> Path:
 def html_to_long_image(html_path: Path, png_path: Path, width: int = 1000) -> Path:
     """HTML → 单张纵向长图（整页内容，超出视口部分自动裁剪空白）。
     方案：用较大视口高度截图，再用 PIL 裁剪底部纯色空白，保证一张图包含全部内容。
+    中间文件（*.tall.png）裁剪后立即删除，不残留。
     """
     url = html_path.resolve().as_uri()
     tall = png_path.with_suffix(".tall.png")
     _run_browser([f"--window-size={width},6000", f"--screenshot={tall}", url])
-    _crop_blank(tall, png_path)
+    try:
+        _crop_blank(tall, png_path)
+    finally:
+        tall.unlink(missing_ok=True)
     return png_path
 
 

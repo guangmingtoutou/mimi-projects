@@ -46,23 +46,35 @@ def chat_json(messages: list, temperature: float = 0.7, timeout: int = 120) -> d
     return json.loads(content)
 
 
-def build_paper_context(analysis: dict, questions_meta: list, class_type: str, videos: list) -> str:
-    """组装发给大模型的上下文文本"""
+def build_paper_context(analysis: dict, questions_meta: list, class_type: str, videos: list,
+                        personal: bool = False) -> str:
+    """组装发给大模型的上下文文本。personal=True：无分数，按对/错题与正确率描述"""
     lines = []
     lines.append(f"班型：{class_type}")
-    lines.append(f"总分：{analysis['total_got']}/{analysis['total_full']}，得分率 {analysis['overall_rate']:.0%}")
-    lines.append("各板块得分：")
-    for sec in analysis["sections"]:
-        lines.append(f"- {sec['name']}：{sec['got_score']}/{sec['full_score']}（得分率{sec['rate']:.0%}，丢分{sec['lost_score']}）")
-    lines.append("各题型得分：")
-    for t in analysis["qtypes"]:
-        lines.append(f"- {t['name']}：{t['got_score']}/{t['full_score']}（得分率{t['rate']:.0%}）")
-    lines.append("逐题情况（题号/板块/题型/满分/得分/知识点/学生答案/正确答案）：")
-    for q in analysis["per_question"]:
-        lines.append(
-            f"- {q['qid']}（{q['section']}·{q['qtype']}）{q['got_score']}/{q['full_score']}分 "
-            f"知识点:{q['knowledge_point'] or '未标注'} 学生答案:{q['student_answer'] or '空'} 正确答案:{q['correct_answer']}"
-        )
+    if personal:
+        total, got, wrong_n = analysis["total_full"], analysis["total_got"], analysis["total_lost"]
+        lines.append(f"试卷共 {total:g} 题，做对 {got:g} 题，做错 {wrong_n:g} 题，正确率 {analysis['overall_rate']:.0%}（无分数，错题由老师标记）")
+        lines.append("各板块掌握情况（题数/做对/正确率/错题数）：")
+        for sec in analysis["sections"]:
+            lines.append(f"- {sec['name']}：共{sec['full_score']:g}题，做对{sec['got_score']:g}题（正确率{sec['rate']:.0%}，错{sec['lost_score']:g}题）")
+        lines.append("逐题情况（题号/板块/题型/对错/知识点）：")
+        for q in analysis["per_question"]:
+            mark = "对" if q["correct"] else "错"
+            lines.append(f"- {q['qid']}（{q['section']}·{q['qtype']}）{mark} 知识点:{q['knowledge_point'] or '未标注'}")
+    else:
+        lines.append(f"总分：{analysis['total_got']}/{analysis['total_full']}，得分率 {analysis['overall_rate']:.0%}")
+        lines.append("各板块得分：")
+        for sec in analysis["sections"]:
+            lines.append(f"- {sec['name']}：{sec['got_score']}/{sec['full_score']}（得分率{sec['rate']:.0%}，丢分{sec['lost_score']}）")
+        lines.append("各题型得分：")
+        for t in analysis["qtypes"]:
+            lines.append(f"- {t['name']}：{t['got_score']}/{t['full_score']}（得分率{t['rate']:.0%}）")
+        lines.append("逐题情况（题号/板块/题型/满分/得分/知识点/学生答案/正确答案）：")
+        for q in analysis["per_question"]:
+            lines.append(
+                f"- {q['qid']}（{q['section']}·{q['qtype']}）{q['got_score']}/{q['full_score']}分 "
+                f"知识点:{q['knowledge_point'] or '未标注'} 学生答案:{q['student_answer'] or '空'} 正确答案:{q['correct_answer']}"
+            )
     if videos:
         lines.append("该班型可用的知识视频目录：")
         for v in videos[:80]:
@@ -70,11 +82,24 @@ def build_paper_context(analysis: dict, questions_meta: list, class_type: str, v
     return "\n".join(lines)
 
 
-def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, videos: list, student: str = "") -> dict:
+def analyze_paper_llm(analysis: dict, questions_meta: list, class_type: str, videos: list,
+                      student: str = "", personal: bool = False) -> dict:
     """大模型生成：试卷难度评析、知识点补充、强化建议、鼓励语"""
-    context = build_paper_context(analysis, questions_meta, class_type, videos)
+    context = build_paper_context(analysis, questions_meta, class_type, videos, personal=personal)
     call = student_call(student)
-    user_msg = f"""请基于以下学情数据输出 JSON（严格按此结构）：
+    if personal:
+        user_msg = f"""请基于以下学情数据输出 JSON（严格按此结构）：
+{{
+  "paper_comment": "试卷整体分析（约350字，客观陈述不带人名和'你'等称呼；语气委婉鼓励；高分侧重表扬与保持，低分侧重下一步计划与进步空间；分析整体难度、板块强弱、主要提升点与复习方向。本次分析无分数，按做对/做错题数评估掌握情况）",
+  "section_importance": "各板块在高考中的占比与重要性说明（150字内）",
+  "knowledge_supplement": [{{"qid": "题号", "knowledge_point": "规范知识点名称"}}],
+  "study_advice": "后续学习建议（约150字，围绕完成直播课、观看知识视频展开，分点给出可执行步骤）",
+  "encouragement": "一段真诚温暖的鼓励（约100字，以「{call}」开头，高分表扬成绩、低分强调计划与进步）"
+}}
+学情数据：
+{context}"""
+    else:
+        user_msg = f"""请基于以下学情数据输出 JSON（严格按此结构）：
 {{
   "paper_comment": "试卷整体分析（约350字，客观陈述不带人名和'你'等称呼；语气委婉鼓励；高分侧重表扬与保持，低分侧重下一步计划与进步空间；分析整体难度、板块强弱、选择题/非选择题表现、主要提升点与复习方向）",
   "section_importance": "各板块在高考中的占比与重要性说明（150字内）",
@@ -144,8 +169,9 @@ def suggest_knowledge_llm(questions: list, timeout: int = 300) -> list:
     return result
 
 
-def template_advice(analysis: dict, student: str = "") -> dict:
-    """纯规则模式的模板化建议文案（不依赖网络）。委婉分层：高分表扬分数，低分强调下一步计划。"""
+def template_advice(analysis: dict, student: str = "", personal: bool = False) -> dict:
+    """纯规则模式的模板化建议文案（不依赖网络）。委婉分层：高分表扬，低分强调下一步计划。
+    personal=True：无分数模式（个人分析），按做对/做错题数与正确率描述。"""
     sec = analysis["sections"]
     total = analysis["total_got"]
     full = analysis["total_full"]
@@ -156,47 +182,89 @@ def template_advice(analysis: dict, student: str = "") -> dict:
 
     # ---- 整体分析（~350字，客观不带称呼） ----
     pts = []
-    if rate >= 0.85:
-        pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，得分率{rate:.0%}，整体表现相当出色。")
-    elif rate >= 0.6:
-        pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，得分率{rate:.0%}，整体基础比较扎实。")
+    if personal:
+        wrong_n = analysis.get("total_lost", 0)
+        if rate >= 0.85:
+            pts.append(f"本次试卷共{full:g}道题，做对{total:g}道、做错{wrong_n:g}道，正确率{rate:.0%}，整体掌握情况相当出色。")
+        elif rate >= 0.6:
+            pts.append(f"本次试卷共{full:g}道题，做对{total:g}道、做错{wrong_n:g}道，正确率{rate:.0%}，整体基础比较扎实。")
+        else:
+            pts.append(f"本次试卷共{full:g}道题，做对{total:g}道、做错{wrong_n:g}道，正确率{rate:.0%}，还有一定的提升空间。")
+        if sec:
+            weak = [s for s in sec if s["rate"] < 0.6]
+            strong = [s for s in sec if s["rate"] >= 0.7]
+            if weak:
+                pts.append(f"从板块分布看，{('、'.join(s['name'] for s in weak[:3]))}等板块错题较为集中，这些内容在高考中占比较为可观，值得优先投入时间。")
+            if strong:
+                pts.append(f"{('、'.join(s['name'] for s in strong[:2]))}等板块掌握得不错，说明基础知识与常规题型训练已有成效。")
+        if sec and weak:
+            w = weak[0]
+            kps = set(q["knowledge_point"] for q in w["loss_questions"] if q.get("knowledge_point"))
+            if kps:
+                pts.append(f"建议围绕{('、'.join(list(kps)[:3]))}等知识点，结合对应知识视频做针对性巩固，再通过同类题检验效果。")
+        pts.append("总体来看，按部就班地完成计划，成绩稳步提升是完全可以期待的。")
     else:
-        pts.append(f"本次试卷满分{full:.0f}分，得分{total:.0f}分，得分率{rate:.0%}，还有一定的提升空间。")
-    if sec:
-        weak = [s for s in sec if s["rate"] < 0.6]
-        strong = [s for s in sec if s["rate"] >= 0.7]
-        if weak:
-            pts.append(f"从板块分布看，{('、'.join(s['name'] for s in weak[:3]))}等板块可以进一步巩固，这些内容在高考中占比较为可观，值得优先投入时间。")
-        if strong:
-            pts.append(f"{('、'.join(s['name'] for s in strong[:2]))}等板块掌握得不错，说明基础知识与常规题型训练已有成效。")
-    pts.append(f"从题型结构看，选择题得分率{choice_rate:.0%}，非选择题得分率{non_rate:.0%}，非选择题（实验题与计算题）方面可以继续加强解题步骤的规范性与综合建模能力。")
-    if sec and weak:
-        w = weak[0]
-        kps = set(q["knowledge_point"] for q in w["loss_questions"] if q.get("knowledge_point"))
-        if kps:
-            pts.append(f"建议围绕{('、'.join(list(kps)[:3]))}等知识点，结合对应知识视频做针对性巩固，再通过同类题检验效果。")
-    pts.append("总体来看，按部就班地完成计划，成绩稳步提升是完全可以期待的。")
+        if rate >= 0.85:
+            pts.append(f"本次试卷满分{full:g}分，得分{total:g}分，得分率{rate:.0%}，整体表现相当出色。")
+        elif rate >= 0.6:
+            pts.append(f"本次试卷满分{full:g}分，得分{total:g}分，得分率{rate:.0%}，整体基础比较扎实。")
+        else:
+            pts.append(f"本次试卷满分{full:g}分，得分{total:g}分，得分率{rate:.0%}，还有一定的提升空间。")
+        if sec:
+            weak = [s for s in sec if s["rate"] < 0.6]
+            strong = [s for s in sec if s["rate"] >= 0.7]
+            if weak:
+                pts.append(f"从板块分布看，{('、'.join(s['name'] for s in weak[:3]))}等板块可以进一步巩固，这些内容在高考中占比较为可观，值得优先投入时间。")
+            if strong:
+                pts.append(f"{('、'.join(s['name'] for s in strong[:2]))}等板块掌握得不错，说明基础知识与常规题型训练已有成效。")
+        pts.append(f"从题型结构看，选择题得分率{choice_rate:.0%}，非选择题得分率{non_rate:.0%}，非选择题（实验题与计算题）方面可以继续加强解题步骤的规范性与综合建模能力。")
+        if sec and weak:
+            w = weak[0]
+            kps = set(q["knowledge_point"] for q in w["loss_questions"] if q.get("knowledge_point"))
+            if kps:
+                pts.append(f"建议围绕{('、'.join(list(kps)[:3]))}等知识点，结合对应知识视频做针对性巩固，再通过同类题检验效果。")
+        pts.append("总体来看，按部就班地完成计划，成绩稳步提升是完全可以期待的。")
     paper_comment = "".join(pts)
 
     # ---- 鼓励（~100字，分层） ----
-    if rate >= 0.85:
-        encouragement = (
-            f"{call}，这次拿到了{total:.0f}分，非常优秀的成绩！这说明你的努力正在开花结果。"
-            "保持住这份节奏，把个别需要巩固的小知识点再完善一下，向更高的目标稳步前进。"
-            "老师和家长都为你的进步感到高兴，继续加油！"
-        )
-    elif rate >= 0.6:
-        encouragement = (
-            f"{call}，这次获得{total:.0f}分，整体表现不错！分数在稳步提升，基础也越来越扎实。"
-            "接下来按学习计划把需要巩固的知识点逐个落实，配合直播课和知识视频，"
-            "下一次一定能看到更明显的进步。继续加油！"
-        )
+    if personal:
+        if rate >= 0.85:
+            encouragement = (
+                f"{call}，这次做对了{total:g}道题，正确率{rate:.0%}，非常优秀的掌握情况！这说明你的努力正在开花结果。"
+                "保持住这份节奏，把个别错题涉及的小知识点再完善一下，向更高的目标稳步前进。"
+                "老师和家长都为你的进步感到高兴，继续加油！"
+            )
+        elif rate >= 0.6:
+            encouragement = (
+                f"{call}，这次做对了{total:g}道题，整体表现不错！掌握情况在稳步提升，基础也越来越扎实。"
+                "接下来按学习计划把错题涉及的知识点逐个落实，配合直播课和知识视频，"
+                "下一次一定能看到更明显的进步。继续加油！"
+            )
+        else:
+            encouragement = (
+                f"{call}，这次做错了不少题目，先别灰心——错题只是现在的坐标，并不代表你的上限。"
+                "按照下面的学习计划，优先完成直播课，把对应知识视频看一遍，再练习同类题，"
+                "进步是可以实实在在实现的。我们一步一步来，一起加油！"
+            )
     else:
-        encouragement = (
-            f"{call}，这次获得{total:.0f}分，先别灰心——分数只是现在的坐标，并不代表你的上限。"
-            "按照下面的学习计划，优先完成直播课，把对应知识视频看一遍，再练习同类题，"
-            "进步是可以实实在在实现的。我们一步一步来，一起加油！"
-        )
+        if rate >= 0.85:
+            encouragement = (
+                f"{call}，这次拿到了{total:g}分，非常优秀的成绩！这说明你的努力正在开花结果。"
+                "保持住这份节奏，把个别需要巩固的小知识点再完善一下，向更高的目标稳步前进。"
+                "老师和家长都为你的进步感到高兴，继续加油！"
+            )
+        elif rate >= 0.6:
+            encouragement = (
+                f"{call}，这次获得{total:g}分，整体表现不错！分数在稳步提升，基础也越来越扎实。"
+                "接下来按学习计划把需要巩固的知识点逐个落实，配合直播课和知识视频，"
+                "下一次一定能看到更明显的进步。继续加油！"
+            )
+        else:
+            encouragement = (
+                f"{call}，这次获得{total:g}分，先别灰心——分数只是现在的坐标，并不代表你的上限。"
+                "按照下面的学习计划，优先完成直播课，把对应知识视频看一遍，再练习同类题，"
+                "进步是可以实实在在实现的。我们一步一步来，一起加油！"
+            )
 
     # ---- 后续建议（围绕直播课、知识视频） ----
     study_advice = (
